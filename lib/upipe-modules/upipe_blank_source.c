@@ -166,6 +166,10 @@ static struct uref *upipe_blksrc_alloc_uref(struct upipe *upipe)
                 uref_pic_set_progressive(uref);
             }
 
+            if (ubase_check(uref_pic_get_tff(upipe_blksrc->flow_def))) {
+                uref_pic_set_tff(uref);
+            }
+
             return uref;
         }
         case UPIPE_BLKSRC_TYPE_SOUND: {
