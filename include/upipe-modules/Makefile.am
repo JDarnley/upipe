@@ -76,4 +76,5 @@ myinclude_HEADERS = \
 	upipe_rtp_vc2_pack.h \
 	upipe_dtsdi.h \
 	upipe_row_split.h \
+	upipe_separate_fields.h \
 	$(NULL)

@@ -68,6 +68,7 @@ libupipe_modules_la_SOURCES = \
 	upipe_rtp_pcm_pack.c \
 	upipe_dtsdi.c \
 	upipe_row_split.c \
+	upipe_separate_fields.c \
 	$(NULL)
 
 if HAVE_WRITEV
