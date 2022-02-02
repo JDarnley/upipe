@@ -35,7 +35,7 @@ static void randomize_buffers(uint16_t *src0, uint16_t *src1, int len)
 void checkasm_check_planar10_input(void)
 {
     struct {
-        void (*v210)(const uint16_t *y, const uint16_t *u, const uint16_t *v, uint8_t *dst, ptrdiff_t pixels);
+        void (*v210)(const uint16_t *y, const uint16_t *u, const uint16_t *v, uint8_t *dst, uintptr_t pixels);
     } s = {
         .v210 = upipe_planar_to_v210_10_c,
     };
@@ -62,7 +62,7 @@ void checkasm_check_planar10_input(void)
         uint8_t dst1[NUM_SAMPLES * 4 / 3 + 32];
         const int pixels = NUM_SAMPLES / 2 / 6 * 6;
 
-        declare_func(void, const uint16_t *y, const uint16_t *u, const uint16_t *v, uint8_t *dst, ptrdiff_t pixels);
+        declare_func(void, const uint16_t *y, const uint16_t *u, const uint16_t *v, uint8_t *dst, uintptr_t pixels);
 
         randomize_buffers(y0, y1, NUM_SAMPLES/2);
         randomize_buffers(u0, u1, NUM_SAMPLES/4);
