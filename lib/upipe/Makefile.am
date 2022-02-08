@@ -13,6 +13,7 @@ libupipe_la_SOURCES = \
 	ubuf_pic_mem.c \
 	ubuf_sound_common.c \
 	ubuf_sound_mem.c \
+	ubuf_super.c \
 	udict_inline.c \
 	uref_std.c \
 	uref_uri.c \

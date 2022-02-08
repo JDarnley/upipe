@@ -18,6 +18,7 @@ pkginclude_HEADERS = \
 	ubuf_sound.h \
 	ubuf_sound_common.h \
 	ubuf_sound_mem.h \
+	ubuf_super.h \
 	uclock.h \
 	uclock_ptp.h \
 	uclock_std.h \
