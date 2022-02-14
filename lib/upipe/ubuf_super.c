@@ -30,6 +30,9 @@
 #include "upipe/ubase.h"
 #include "upipe/urefcount.h"
 #include "upipe/ubuf.h"
+#include "upipe/ubuf_block.h"
+#include "upipe/ubuf_pic.h"
+#include "upipe/ubuf_sound.h"
 #include "upipe/ubuf_super.h"
 
 struct ubuf_super {
@@ -57,7 +60,50 @@ UBASE_FROM_TO(ubuf_super_mgr, urefcount, urefcount, refcount)
 
 static struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, uint32_t signature,  va_list args)
 {
-    return NULL;
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
+
+    void *v = malloc(sizeof(struct ubuf_super)
+            + sizeof(struct ubuf *) * ctx->num_mgr_b
+            + sizeof(struct ubuf *) * ctx->num_mgr_p
+            + sizeof(struct ubuf *) * ctx->num_mgr_s);
+    if (unlikely(v == NULL))
+        return NULL;
+
+    struct ubuf_super *super = v;
+    struct ubuf *ubuf = ubuf_super_to_ubuf(super);
+    ubuf->mgr = mgr;
+
+    v += sizeof(struct ubuf_super);
+    super->buf_b = v;
+    v += sizeof(struct ubuf **) * ctx->num_mgr_b;
+    super->buf_p = v;
+    v += sizeof(struct ubuf **) * ctx->num_mgr_p;
+    super->buf_s = v;
+
+    /* TODO: replace with goto and memset arrays. */
+    bool is_null = false;
+    for (int i = 0; i < ctx->num_mgr_b; i++) {
+        super->buf_b[i] = ubuf_block_alloc(ctx->mgr_b[i], SIZE);
+        if (super->buf_b == NULL)
+            is_null = true;
+    }
+    for (int i = 0; i < ctx->num_mgr_p; i++) {
+        super->buf_p[i] = ubuf_pic_alloc(ctx->mgr_p[i], WIDTH, HEIGHT);
+        if (super->buf_p == NULL)
+            is_null = true;
+    }
+    for (int i = 0; i < ctx->num_mgr_s; i++) {
+        super->buf_s[i] = ubuf_sound_alloc(ctx->mgr_s[i], SAMPLES);
+        if (super->buf_s == NULL)
+            is_null = true;
+    }
+
+    if (is_null) {
+        ubuf_free(ubuf);
+        return NULL;
+    }
+
+    return ubuf;
 }
 
 static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
