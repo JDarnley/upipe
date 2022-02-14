@@ -33,14 +33,20 @@
 #include "upipe/ubuf_super.h"
 
 struct ubuf_super {
+    /* sub ubufs associated with this super ubuf */
     struct ubuf **buf_b, **buf_p, **buf_s;
+    /* common public struct */
     struct ubuf ubuf;
 };
 
 struct ubuf_super_mgr {
+    /** sub managers */
     struct ubuf_mgr **mgr_b, **mgr_p, **mgr_s;
+    /** number of sub managers */
     uint8_t num_mgr_b, num_mgr_p, num_mgr_s;
+    /** refcount management structure */
     struct urefcount refcount;
+    /* common public struct */
     struct ubuf_mgr mgr;
 };
 
