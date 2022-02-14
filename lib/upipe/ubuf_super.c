@@ -49,6 +49,26 @@ UBASE_FROM_TO(ubuf_super, ubuf, ubuf, ubuf)
 UBASE_FROM_TO(ubuf_super_mgr, ubuf_mgr, ubuf_mgr, mgr)
 UBASE_FROM_TO(ubuf_super_mgr, urefcount, urefcount, refcount)
 
+static struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, uint32_t signature,  va_list args)
+{
+    return NULL;
+}
+
+static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
+{
+    return UBASE_ERR_UNHANDLED;
+}
+
+static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list args)
+{
+    return UBASE_ERR_UNHANDLED;
+}
+
+static void ubuf_super_free(struct ubuf *ubuf)
+{
+    return;
+}
+
 static void ubuf_super_mgr_free(struct urefcount *urefcount)
 {
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_urefcount(urefcount);
@@ -69,6 +89,10 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(void)
 
     struct ubuf_mgr *mgr = ubuf_super_mgr_to_ubuf_mgr(ctx);
     mgr->signature = UBUF_SUPER;
+    mgr->ubuf_alloc = ubuf_super_alloc;
+    mgr->ubuf_control = ubuf_super_control;
+    mgr->ubuf_free = ubuf_super_free;
+    mgr->ubuf_mgr_control = ubuf_super_mgr_control;
 
     return mgr;
 }
