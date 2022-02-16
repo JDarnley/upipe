@@ -140,7 +140,7 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(void)
     urefcount_init(ubuf_super_mgr_to_urefcount(ctx), ubuf_super_mgr_free);
 
     struct ubuf_mgr *mgr = ubuf_super_mgr_to_ubuf_mgr(ctx);
-    mgr->signature = UBUF_SUPER;
+    mgr->signature = UBUF_SUPER_SIGNATURE;
     mgr->ubuf_alloc = ubuf_super_alloc;
     mgr->ubuf_control = ubuf_super_control;
     mgr->ubuf_free = ubuf_super_free;

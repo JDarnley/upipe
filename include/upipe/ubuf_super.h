@@ -37,7 +37,7 @@ extern "C" {
 #include "upipe/ubase.h"
 #include "upipe/ubuf.h"
 
-#define UBUF_SUPER UBASE_FOURCC('s','u','p','a')
+#define UBUF_SUPER_SIGNATURE UBASE_FOURCC('s','u','p','a')
 
 struct ubuf_mgr *ubuf_super_mgr_alloc(void);
 
