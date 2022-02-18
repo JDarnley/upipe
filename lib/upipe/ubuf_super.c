@@ -30,9 +30,11 @@
 #include "upipe/ubase.h"
 #include "upipe/ubuf.h"
 #include "upipe/ubuf_block.h"
+#include "upipe/ubuf_mem.h"
 #include "upipe/ubuf_pic.h"
 #include "upipe/ubuf_sound.h"
 #include "upipe/ubuf_super.h"
+#include "upipe/uref_flow.h"
 #include "upipe/urefcount.h"
 
 struct ubuf_super {
@@ -116,8 +118,59 @@ static void ubuf_super_free(struct ubuf *ubuf)
     return;
 }
 
+static int add_sub_flow(struct ubuf_super_mgr *ctx, struct uref *flow)
+{
+    const char *def;
+    UBASE_RETURN(uref_flow_get_def(flow, &def));
+
+    struct ubuf_mgr ***array = NULL;
+    uint8_t *num = NULL;
+    if (!ubase_ncmp(def, "block.")) {
+        array = &ctx->mgr_b;
+        num = &ctx->num_mgr_b;
+    }
+    else if (!ubase_ncmp(def, "pic.")) {
+        array = &ctx->mgr_p;
+        num = &ctx->num_mgr_p;
+    }
+    else if (!ubase_ncmp(def, "sound.")) {
+        array = &ctx->mgr_s;
+        num = &ctx->num_mgr_s;
+    }
+    else
+        return UBASE_ERR_INVALID;
+
+    if (unlikely(*num == UINT8_MAX))
+        return UBASE_ERR_INVALID;
+
+    struct ubuf_mgr *sub = ubuf_mem_mgr_alloc_from_flow_def(DEPTH1, DEPTH2,
+            UMEM_MGR, flow);
+    UBASE_ALLOC_RETURN(sub);
+
+    struct ubuf_mgr **new_array = realloc(*array, (*num + 1) * sizeof(struct ubuf_mgr *));
+    if (unlikely(new_array == NULL)) {
+        ubuf_mgr_release(sub);
+        return UBASE_ERR_ALLOC;
+    }
+
+    new_array[*num] = sub;
+    *array = new_array;
+    *num += 1;
+
+    return UBASE_ERR_NONE;
+}
+
 static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list args)
 {
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
+    switch (command) {
+    case UBUF_SUPER_MGR_ADD_SUB_FLOW: {
+        UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
+        struct uref *flow = va_arg(args, struct uref*);
+        return add_sub_flow(ctx, flow);
+    } break;
+    }
+
     return UBASE_ERR_UNHANDLED;
 }
 

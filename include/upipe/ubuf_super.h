@@ -36,10 +36,22 @@ extern "C" {
 
 #include <upipe/ubase.h>
 #include <upipe/ubuf.h>
+#include <upipe/uref.h>
 
 #define UBUF_SUPER_SIGNATURE UBASE_FOURCC('s','u','p','a')
 
 struct ubuf_mgr *ubuf_super_mgr_alloc(void);
+
+enum ubuf_super_mgr_command {
+    UBUF_SUPER_MGR_ADD_SUB_FLOW = UBUF_MGR_CONTROL_LOCAL,
+};
+
+static inline int ubuf_super_mgr_add_sub_flow(struct ubuf_mgr *mgr,
+        struct uref *flow)
+{
+    return ubuf_mgr_control(mgr, UBUF_SUPER_MGR_ADD_SUB_FLOW, UBUF_SUPER_SIGNATURE,
+            flow);
+}
 
 #ifdef __cplusplus
 }
