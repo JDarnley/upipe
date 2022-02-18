@@ -40,7 +40,8 @@ extern "C" {
 
 #define UBUF_SUPER_SIGNATURE UBASE_FOURCC('s','u','p','a')
 
-struct ubuf_mgr *ubuf_super_mgr_alloc(void);
+struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_pool_depth,
+        struct umem_mgr *umem_mgr);
 
 enum ubuf_super_mgr_command {
     UBUF_SUPER_MGR_ADD_SUB_FLOW = UBUF_MGR_CONTROL_LOCAL,

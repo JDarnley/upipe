@@ -34,6 +34,7 @@
 #include "upipe/ubuf_pic.h"
 #include "upipe/ubuf_sound.h"
 #include "upipe/ubuf_super.h"
+#include "upipe/umem.h"
 #include "upipe/uref_flow.h"
 #include "upipe/urefcount.h"
 
@@ -53,6 +54,10 @@ struct ubuf_super_mgr {
     struct urefcount refcount;
     /* common public struct */
     struct ubuf_mgr mgr;
+    /** sub manager pool depths */
+    uint16_t ubuf_pool_depth, shared_pool_depth;
+    /** sub manager umem manager */
+    struct umem_mgr *umem_mgr;
 };
 
 UBASE_FROM_TO(ubuf_super, ubuf, ubuf, ubuf)
@@ -143,8 +148,8 @@ static int add_sub_flow(struct ubuf_super_mgr *ctx, struct uref *flow)
     if (unlikely(*num == UINT8_MAX))
         return UBASE_ERR_INVALID;
 
-    struct ubuf_mgr *sub = ubuf_mem_mgr_alloc_from_flow_def(DEPTH1, DEPTH2,
-            UMEM_MGR, flow);
+    struct ubuf_mgr *sub = ubuf_mem_mgr_alloc_from_flow_def(ctx->ubuf_pool_depth,
+            ctx->shared_pool_depth, ctx->umem_mgr, flow);
     UBASE_ALLOC_RETURN(sub);
 
     struct ubuf_mgr **new_array = realloc(*array, (*num + 1) * sizeof(struct ubuf_mgr *));
@@ -181,7 +186,8 @@ static void ubuf_super_mgr_free(struct urefcount *urefcount)
     free(ctx);
 }
 
-struct ubuf_mgr *ubuf_super_mgr_alloc(void)
+struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_pool_depth,
+        struct umem_mgr *umem_mgr)
 {
     struct ubuf_super_mgr *ctx = malloc(sizeof(struct ubuf_super_mgr));
     if (unlikely(ctx == NULL))
@@ -189,6 +195,9 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(void)
 
     ctx->mgr_b = ctx->mgr_p = ctx->mgr_s = NULL;
     ctx->num_mgr_b = ctx->num_mgr_p = ctx->num_mgr_s = 0;
+    ctx->ubuf_pool_depth = ubuf_pool_depth;
+    ctx->shared_pool_depth = shared_pool_depth;
+    ctx->umem_mgr = umem_mgr_use(umem_mgr);
 
     urefcount_init(ubuf_super_mgr_to_urefcount(ctx), ubuf_super_mgr_free);
 
