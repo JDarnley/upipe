@@ -28,12 +28,12 @@
  */
 
 #include "upipe/ubase.h"
-#include "upipe/urefcount.h"
 #include "upipe/ubuf.h"
 #include "upipe/ubuf_block.h"
 #include "upipe/ubuf_pic.h"
 #include "upipe/ubuf_sound.h"
 #include "upipe/ubuf_super.h"
+#include "upipe/urefcount.h"
 
 struct ubuf_super {
     /* sub ubufs associated with this super ubuf */
@@ -111,14 +111,14 @@ static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
     return UBASE_ERR_UNHANDLED;
 }
 
-static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list args)
-{
-    return UBASE_ERR_UNHANDLED;
-}
-
 static void ubuf_super_free(struct ubuf *ubuf)
 {
     return;
+}
+
+static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list args)
+{
+    return UBASE_ERR_UNHANDLED;
 }
 
 static void ubuf_super_mgr_free(struct urefcount *urefcount)
