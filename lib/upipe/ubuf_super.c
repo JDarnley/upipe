@@ -242,12 +242,15 @@ static void ubuf_super_mgr_free(struct urefcount *urefcount)
     for (int i = 0; i < ctx->num_mgr_b; i++) {
         ubuf_mgr_release(ctx->mgr_b[i]);
     }
+    free(ctx->mgr_b);
     for (int i = 0; i < ctx->num_mgr_p; i++) {
         ubuf_mgr_release(ctx->mgr_p[i]);
     }
+    free(ctx->mgr_p);
     for (int i = 0; i < ctx->num_mgr_s; i++) {
         ubuf_mgr_release(ctx->mgr_s[i]);
     }
+    free(ctx->mgr_s);
     umem_mgr_release(ctx->umem_mgr);
     urefcount_clean(urefcount);
     free(ctx);
