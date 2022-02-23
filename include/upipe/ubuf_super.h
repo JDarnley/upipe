@@ -40,11 +40,42 @@ extern "C" {
 
 #define UBUF_SUPER_SIGNATURE UBASE_FOURCC('s','u','p','a')
 
+/* ubufs */
+
+enum ubuf_super_command {
+    UBUF_SUPER_GET_BLK_UBUF = UBUF_MGR_CONTROL_LOCAL,
+    UBUF_SUPER_GET_PIC_UBUF,
+    UBUF_SUPER_GET_SND_UBUF,
+};
+
 static inline struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, unsigned sizes[],
         unsigned widths[], unsigned heights[], unsigned samples[])
 {
     return ubuf_alloc(mgr, UBUF_SUPER_SIGNATURE, sizes, widths, heights, samples);
 }
+
+/* ubufs given by these functions remain owned by the super ubuf so do not free
+ * them directly */
+
+static inline int ubuf_super_get_block_ubuf(struct ubuf *ubuf, struct ubuf **sub,
+        uint8_t which)
+{
+    return ubuf_control(ubuf, UBUF_SUPER_GET_BLK_UBUF, UBUF_SUPER_SIGNATURE, sub, which);
+}
+
+static inline int ubuf_super_get_picture_ubuf(struct ubuf *ubuf, struct ubuf **sub,
+        uint8_t which)
+{
+    return ubuf_control(ubuf, UBUF_SUPER_GET_PIC_UBUF, UBUF_SUPER_SIGNATURE, sub, which);
+}
+
+static inline int ubuf_super_get_sound_ubuf(struct ubuf *ubuf, struct ubuf **sub,
+        uint8_t which)
+{
+    return ubuf_control(ubuf, UBUF_SUPER_GET_SND_UBUF, UBUF_SUPER_SIGNATURE, sub, which);
+}
+
+/* ubuf_mgrs */
 
 struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_pool_depth,
         struct umem_mgr *umem_mgr);

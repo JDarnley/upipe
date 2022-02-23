@@ -122,8 +122,45 @@ static struct ubuf *super_alloc(struct ubuf_mgr *mgr, uint32_t signature,
     return ubuf;
 }
 
+static int get_sub_ubuf(struct ubuf_super *super, int type, struct ubuf **sub, uint8_t which)
+{
+    struct ubuf *ubuf = ubuf_super_to_ubuf(super);
+    struct ubuf_mgr *mgr = ubuf->mgr;
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
+
+    struct ubuf **array;
+    uint8_t num;
+    if (type == UBUF_SUPER_GET_BLK_UBUF) {
+        array = super->buf_b;
+        num = ctx->num_mgr_b;
+    }
+    if (type == UBUF_SUPER_GET_PIC_UBUF) {
+        array = super->buf_p;
+        num = ctx->num_mgr_p;
+    }
+    if (type == UBUF_SUPER_GET_SND_UBUF) {
+        array = super->buf_s;
+        num = ctx->num_mgr_s;
+    }
+
+    if (which >= num)
+        return UBASE_ERR_INVALID;
+
+    *sub = array[which];
+    return UBASE_ERR_NONE;
+}
+
 static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
 {
+    struct ubuf_super *super = ubuf_super_from_ubuf(ubuf);
+    switch (command) {
+    case UBUF_SUPER_GET_BLK_UBUF:
+    case UBUF_SUPER_GET_PIC_UBUF:
+    case UBUF_SUPER_GET_SND_UBUF:
+        UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
+        return get_sub_ubuf(super, command, va_arg(args, struct ubuf **), va_arg(args, int));
+    }
+
     return UBASE_ERR_UNHANDLED;
 }
 
