@@ -239,6 +239,16 @@ static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list arg
 static void ubuf_super_mgr_free(struct urefcount *urefcount)
 {
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_urefcount(urefcount);
+    for (int i = 0; i < ctx->num_mgr_b; i++) {
+        ubuf_mgr_release(ctx->mgr_b[i]);
+    }
+    for (int i = 0; i < ctx->num_mgr_p; i++) {
+        ubuf_mgr_release(ctx->mgr_p[i]);
+    }
+    for (int i = 0; i < ctx->num_mgr_s; i++) {
+        ubuf_mgr_release(ctx->mgr_s[i]);
+    }
+    umem_mgr_release(ctx->umem_mgr);
     urefcount_clean(urefcount);
     free(ctx);
 }
