@@ -87,6 +87,12 @@ int main(int argc, char **argv)
     ubase_assert(ubuf_super_mgr_add_sub_flow(mgr, flow_def));
     uref_free(flow_def);
 
+    struct ubuf *ubuf = ubuf_super_alloc(mgr, (unsigned[]){1}, (unsigned[]){1},
+            (unsigned[]){1}, (unsigned[]){1});
+    assert(ubuf != NULL);
+
+    ubuf_free(ubuf);
+
     ubuf_mgr_release(mgr);
     uref_mgr_release(uref_mgr);
     udict_mgr_release(udict_mgr);
