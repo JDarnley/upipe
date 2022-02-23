@@ -269,6 +269,7 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_
     urefcount_init(ubuf_super_mgr_to_urefcount(ctx), ubuf_super_mgr_free);
 
     struct ubuf_mgr *mgr = ubuf_super_mgr_to_ubuf_mgr(ctx);
+    mgr->refcount = ubuf_super_mgr_to_urefcount(ctx);
     mgr->signature = UBUF_SUPER_SIGNATURE;
     mgr->ubuf_alloc = super_alloc;
     mgr->ubuf_control = ubuf_super_control;
