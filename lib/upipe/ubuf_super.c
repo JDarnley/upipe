@@ -228,11 +228,9 @@ static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list arg
 {
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
     switch (command) {
-    case UBUF_SUPER_MGR_ADD_SUB_FLOW: {
+    case UBUF_SUPER_MGR_ADD_SUB_FLOW:
         UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
-        struct uref *flow = va_arg(args, struct uref*);
-        return add_sub_flow(ctx, flow);
-    } break;
+        return add_sub_flow(ctx, va_arg(args, struct uref*));
     }
 
     return UBASE_ERR_UNHANDLED;
