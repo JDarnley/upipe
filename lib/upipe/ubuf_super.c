@@ -65,8 +65,17 @@ UBASE_FROM_TO(ubuf_super, ubuf, ubuf, ubuf)
 UBASE_FROM_TO(ubuf_super_mgr, ubuf_mgr, ubuf_mgr, mgr)
 UBASE_FROM_TO(ubuf_super_mgr, urefcount, urefcount, refcount)
 
-static struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, uint32_t signature,  va_list args)
+static struct ubuf *super_alloc(struct ubuf_mgr *mgr, uint32_t signature,
+        va_list args)
 {
+    if (unlikely(signature != UBUF_SUPER_SIGNATURE))
+        return NULL;
+
+    const uint32_t *sizes = va_arg(args, const uint32_t *);
+    const uint32_t *widths = va_arg(args, const uint32_t *);
+    const uint32_t *heights = va_arg(args, const uint32_t *);
+    const uint32_t *samples = va_arg(args, const uint32_t *);
+
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
 
     void *v = malloc(sizeof(struct ubuf_super)
@@ -90,17 +99,17 @@ static struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, uint32_t signature,  
     /* TODO: replace with goto and memset arrays. */
     bool is_null = false;
     for (int i = 0; i < ctx->num_mgr_b; i++) {
-        super->buf_b[i] = ubuf_block_alloc(ctx->mgr_b[i], SIZE);
+        super->buf_b[i] = ubuf_block_alloc(ctx->mgr_b[i], sizes[i]);
         if (super->buf_b == NULL)
             is_null = true;
     }
     for (int i = 0; i < ctx->num_mgr_p; i++) {
-        super->buf_p[i] = ubuf_pic_alloc(ctx->mgr_p[i], WIDTH, HEIGHT);
+        super->buf_p[i] = ubuf_pic_alloc(ctx->mgr_p[i], widths[i], heights[i]);
         if (super->buf_p == NULL)
             is_null = true;
     }
     for (int i = 0; i < ctx->num_mgr_s; i++) {
-        super->buf_s[i] = ubuf_sound_alloc(ctx->mgr_s[i], SAMPLES);
+        super->buf_s[i] = ubuf_sound_alloc(ctx->mgr_s[i], samples[i]);
         if (super->buf_s == NULL)
             is_null = true;
     }
@@ -216,7 +225,7 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_
 
     struct ubuf_mgr *mgr = ubuf_super_mgr_to_ubuf_mgr(ctx);
     mgr->signature = UBUF_SUPER_SIGNATURE;
-    mgr->ubuf_alloc = ubuf_super_alloc;
+    mgr->ubuf_alloc = super_alloc;
     mgr->ubuf_control = ubuf_super_control;
     mgr->ubuf_free = ubuf_super_free;
     mgr->ubuf_mgr_control = ubuf_super_mgr_control;

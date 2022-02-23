@@ -40,6 +40,12 @@ extern "C" {
 
 #define UBUF_SUPER_SIGNATURE UBASE_FOURCC('s','u','p','a')
 
+static inline struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, unsigned sizes[],
+        unsigned widths[], unsigned heights[], unsigned samples[])
+{
+    return ubuf_alloc(mgr, UBUF_SUPER_SIGNATURE, sizes, widths, heights, samples);
+}
+
 struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_pool_depth,
         struct umem_mgr *umem_mgr);
 
