@@ -120,6 +120,19 @@ static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
 
 static void ubuf_super_free(struct ubuf *ubuf)
 {
+    struct ubuf_mgr *mgr = ubuf->mgr;
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
+    struct ubuf_super *super = ubuf_super_from_ubuf(ubuf);
+    for (int i = 0; i < ctx->num_mgr_b; i++) {
+        ubuf_free(super->buf_b[i]);
+    }
+    for (int i = 0; i < ctx->num_mgr_p; i++) {
+        ubuf_free(super->buf_p[i]);
+    }
+    for (int i = 0; i < ctx->num_mgr_s; i++) {
+        ubuf_free(super->buf_s[i]);
+    }
+    free(super);
     return;
 }
 
