@@ -36,6 +36,7 @@ extern "C" {
 
 #include <upipe/ubase.h>
 #include <upipe/ubuf.h>
+#include <upipe/ubuf_mem.h>
 #include <upipe/uref.h>
 
 #define UBUF_SUPER_SIGNATURE UBASE_FOURCC('s','u','p','a')
