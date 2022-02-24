@@ -158,7 +158,11 @@ static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
     case UBUF_SUPER_GET_PIC_UBUF:
     case UBUF_SUPER_GET_SND_UBUF:
         UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
-        return get_sub_ubuf(super, command, va_arg(args, struct ubuf **), va_arg(args, int));
+        {
+            struct ubuf **sub = va_arg(args, struct ubuf **);
+            uint8_t which = va_arg(args, int);
+            return get_sub_ubuf(super, command, sub, which);
+        }
     }
 
     return UBASE_ERR_UNHANDLED;
