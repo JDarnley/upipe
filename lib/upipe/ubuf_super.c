@@ -71,10 +71,10 @@ static struct ubuf *super_alloc(struct ubuf_mgr *mgr, uint32_t signature,
     if (unlikely(signature != UBUF_SUPER_SIGNATURE))
         return NULL;
 
-    const uint32_t *sizes = va_arg(args, const uint32_t *);
-    const uint32_t *widths = va_arg(args, const uint32_t *);
-    const uint32_t *heights = va_arg(args, const uint32_t *);
-    const uint32_t *samples = va_arg(args, const uint32_t *);
+    const int *sizes = va_arg(args, const int *);
+    const int *widths = va_arg(args, const int *);
+    const int *heights = va_arg(args, const int *);
+    const int *samples = va_arg(args, const int *);
 
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
 

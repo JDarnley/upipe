@@ -49,8 +49,8 @@ enum ubuf_super_command {
     UBUF_SUPER_GET_SND_UBUF,
 };
 
-static inline struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, unsigned sizes[],
-        unsigned widths[], unsigned heights[], unsigned samples[])
+static inline struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, const int sizes[],
+        const int widths[], const int heights[], const int samples[])
 {
     return ubuf_alloc(mgr, UBUF_SUPER_SIGNATURE, sizes, widths, heights, samples);
 }
