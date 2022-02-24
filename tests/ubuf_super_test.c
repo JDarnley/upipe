@@ -91,6 +91,20 @@ int main(int argc, char **argv)
             (int[]){1}, (int[]){1});
     assert(ubuf != NULL);
 
+    struct ubuf *sub = NULL;
+    ubase_assert(ubuf_super_get_block_ubuf(ubuf, &sub, 0));
+    assert(sub != NULL);
+    sub = NULL;
+    ubase_assert(ubuf_super_get_picture_ubuf(ubuf, &sub, 0));
+    assert(sub != NULL);
+    sub = NULL;
+    ubase_assert(ubuf_super_get_sound_ubuf(ubuf, &sub, 0));
+    assert(sub != NULL);
+
+    ubase_nassert(ubuf_super_get_block_ubuf(ubuf, &sub, 1));
+    ubase_nassert(ubuf_super_get_picture_ubuf(ubuf, &sub, 1));
+    ubase_nassert(ubuf_super_get_sound_ubuf(ubuf, &sub, 1));
+
     ubuf_free(ubuf);
 
     ubuf_mgr_release(mgr);
