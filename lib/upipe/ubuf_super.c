@@ -222,14 +222,22 @@ static int add_sub_flow(struct ubuf_super_mgr *ctx, struct uref *flow)
             ctx->shared_pool_depth, ctx->umem_mgr, flow);
     UBASE_ALLOC_RETURN(sub);
 
+    flow = uref_dup(flow);
+    if (unlikely(flow == NULL)) {
+        ubuf_mgr_release(sub);
+        return UBASE_ERR_ALLOC;
+    }
+
     struct sub_flow *new_array = realloc(*array, (*num + 1)
             * sizeof(struct sub_flow));
     if (unlikely(new_array == NULL)) {
+        uref_free(flow);
         ubuf_mgr_release(sub);
         return UBASE_ERR_ALLOC;
     }
 
     new_array[*num].mgr = sub;
+    new_array[*num].flow = flow;
     *array = new_array;
     *num += 1;
 
@@ -253,14 +261,17 @@ static void ubuf_super_mgr_free(struct urefcount *urefcount)
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_urefcount(urefcount);
     for (int i = 0; i < ctx->num_flows_b; i++) {
         ubuf_mgr_release(ctx->flows_b[i].mgr);
+        uref_free(ctx->flows_b[i].flow);
     }
     free(ctx->flows_b);
     for (int i = 0; i < ctx->num_flows_p; i++) {
         ubuf_mgr_release(ctx->flows_p[i].mgr);
+        uref_free(ctx->flows_p[i].flow);
     }
     free(ctx->flows_p);
     for (int i = 0; i < ctx->num_flows_s; i++) {
         ubuf_mgr_release(ctx->flows_s[i].mgr);
+        uref_free(ctx->flows_s[i].flow);
     }
     free(ctx->flows_s);
     umem_mgr_release(ctx->umem_mgr);
