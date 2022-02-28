@@ -45,11 +45,18 @@ struct ubuf_super {
     struct ubuf ubuf;
 };
 
-struct ubuf_super_mgr {
+struct sub_flow {
+    /** sub flow format */
+    struct uref *flow;
     /** sub managers */
-    struct ubuf_mgr **mgr_b, **mgr_p, **mgr_s;
+    struct ubuf_mgr *mgr;
+};
+
+struct ubuf_super_mgr {
+    /** sub flows */
+    struct sub_flow *flows_b, *flows_p, *flows_s;
     /** number of sub managers */
-    uint8_t num_mgr_b, num_mgr_p, num_mgr_s;
+    uint8_t num_flows_b, num_flows_p, num_flows_s;
     /** refcount management structure */
     struct urefcount refcount;
     /* common public struct */
@@ -79,9 +86,9 @@ static struct ubuf *super_alloc(struct ubuf_mgr *mgr, uint32_t signature,
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
 
     void *v = malloc(sizeof(struct ubuf_super)
-            + sizeof(struct ubuf *) * ctx->num_mgr_b
-            + sizeof(struct ubuf *) * ctx->num_mgr_p
-            + sizeof(struct ubuf *) * ctx->num_mgr_s);
+            + sizeof(struct ubuf *) * ctx->num_flows_b
+            + sizeof(struct ubuf *) * ctx->num_flows_p
+            + sizeof(struct ubuf *) * ctx->num_flows_s);
     if (unlikely(v == NULL))
         return NULL;
 
@@ -91,25 +98,25 @@ static struct ubuf *super_alloc(struct ubuf_mgr *mgr, uint32_t signature,
 
     v += sizeof(struct ubuf_super);
     super->buf_b = v;
-    v += sizeof(struct ubuf **) * ctx->num_mgr_b;
+    v += sizeof(struct ubuf **) * ctx->num_flows_b;
     super->buf_p = v;
-    v += sizeof(struct ubuf **) * ctx->num_mgr_p;
+    v += sizeof(struct ubuf **) * ctx->num_flows_p;
     super->buf_s = v;
 
     /* TODO: replace with goto and memset arrays. */
     bool is_null = false;
-    for (int i = 0; i < ctx->num_mgr_b; i++) {
-        super->buf_b[i] = ubuf_block_alloc(ctx->mgr_b[i], sizes[i]);
+    for (int i = 0; i < ctx->num_flows_b; i++) {
+        super->buf_b[i] = ubuf_block_alloc(ctx->flows_b[i].mgr, sizes[i]);
         if (super->buf_b == NULL)
             is_null = true;
     }
-    for (int i = 0; i < ctx->num_mgr_p; i++) {
-        super->buf_p[i] = ubuf_pic_alloc(ctx->mgr_p[i], widths[i], heights[i]);
+    for (int i = 0; i < ctx->num_flows_p; i++) {
+        super->buf_p[i] = ubuf_pic_alloc(ctx->flows_p[i].mgr, widths[i], heights[i]);
         if (super->buf_p == NULL)
             is_null = true;
     }
-    for (int i = 0; i < ctx->num_mgr_s; i++) {
-        super->buf_s[i] = ubuf_sound_alloc(ctx->mgr_s[i], samples[i]);
+    for (int i = 0; i < ctx->num_flows_s; i++) {
+        super->buf_s[i] = ubuf_sound_alloc(ctx->flows_s[i].mgr, samples[i]);
         if (super->buf_s == NULL)
             is_null = true;
     }
@@ -132,15 +139,15 @@ static int get_sub_ubuf(struct ubuf_super *super, int type, struct ubuf **sub, u
     uint8_t num;
     if (type == UBUF_SUPER_GET_BLK_UBUF) {
         array = super->buf_b;
-        num = ctx->num_mgr_b;
+        num = ctx->num_flows_b;
     }
     if (type == UBUF_SUPER_GET_PIC_UBUF) {
         array = super->buf_p;
-        num = ctx->num_mgr_p;
+        num = ctx->num_flows_p;
     }
     if (type == UBUF_SUPER_GET_SND_UBUF) {
         array = super->buf_s;
-        num = ctx->num_mgr_s;
+        num = ctx->num_flows_s;
     }
 
     if (which >= num)
@@ -173,13 +180,13 @@ static void ubuf_super_free(struct ubuf *ubuf)
     struct ubuf_mgr *mgr = ubuf->mgr;
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
     struct ubuf_super *super = ubuf_super_from_ubuf(ubuf);
-    for (int i = 0; i < ctx->num_mgr_b; i++) {
+    for (int i = 0; i < ctx->num_flows_b; i++) {
         ubuf_free(super->buf_b[i]);
     }
-    for (int i = 0; i < ctx->num_mgr_p; i++) {
+    for (int i = 0; i < ctx->num_flows_p; i++) {
         ubuf_free(super->buf_p[i]);
     }
-    for (int i = 0; i < ctx->num_mgr_s; i++) {
+    for (int i = 0; i < ctx->num_flows_s; i++) {
         ubuf_free(super->buf_s[i]);
     }
     free(super);
@@ -191,19 +198,19 @@ static int add_sub_flow(struct ubuf_super_mgr *ctx, struct uref *flow)
     const char *def;
     UBASE_RETURN(uref_flow_get_def(flow, &def));
 
-    struct ubuf_mgr ***array = NULL;
+    struct sub_flow **array = NULL;
     uint8_t *num = NULL;
     if (!ubase_ncmp(def, "block.")) {
-        array = &ctx->mgr_b;
-        num = &ctx->num_mgr_b;
+        array = &ctx->flows_b;
+        num = &ctx->num_flows_b;
     }
     else if (!ubase_ncmp(def, "pic.")) {
-        array = &ctx->mgr_p;
-        num = &ctx->num_mgr_p;
+        array = &ctx->flows_p;
+        num = &ctx->num_flows_p;
     }
     else if (!ubase_ncmp(def, "sound.")) {
-        array = &ctx->mgr_s;
-        num = &ctx->num_mgr_s;
+        array = &ctx->flows_s;
+        num = &ctx->num_flows_s;
     }
     else
         return UBASE_ERR_INVALID;
@@ -215,13 +222,14 @@ static int add_sub_flow(struct ubuf_super_mgr *ctx, struct uref *flow)
             ctx->shared_pool_depth, ctx->umem_mgr, flow);
     UBASE_ALLOC_RETURN(sub);
 
-    struct ubuf_mgr **new_array = realloc(*array, (*num + 1) * sizeof(struct ubuf_mgr *));
+    struct sub_flow *new_array = realloc(*array, (*num + 1)
+            * sizeof(struct sub_flow));
     if (unlikely(new_array == NULL)) {
         ubuf_mgr_release(sub);
         return UBASE_ERR_ALLOC;
     }
 
-    new_array[*num] = sub;
+    new_array[*num].mgr = sub;
     *array = new_array;
     *num += 1;
 
@@ -243,18 +251,18 @@ static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list arg
 static void ubuf_super_mgr_free(struct urefcount *urefcount)
 {
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_urefcount(urefcount);
-    for (int i = 0; i < ctx->num_mgr_b; i++) {
-        ubuf_mgr_release(ctx->mgr_b[i]);
+    for (int i = 0; i < ctx->num_flows_b; i++) {
+        ubuf_mgr_release(ctx->flows_b[i].mgr);
     }
-    free(ctx->mgr_b);
-    for (int i = 0; i < ctx->num_mgr_p; i++) {
-        ubuf_mgr_release(ctx->mgr_p[i]);
+    free(ctx->flows_b);
+    for (int i = 0; i < ctx->num_flows_p; i++) {
+        ubuf_mgr_release(ctx->flows_p[i].mgr);
     }
-    free(ctx->mgr_p);
-    for (int i = 0; i < ctx->num_mgr_s; i++) {
-        ubuf_mgr_release(ctx->mgr_s[i]);
+    free(ctx->flows_p);
+    for (int i = 0; i < ctx->num_flows_s; i++) {
+        ubuf_mgr_release(ctx->flows_s[i].mgr);
     }
-    free(ctx->mgr_s);
+    free(ctx->flows_s);
     umem_mgr_release(ctx->umem_mgr);
     urefcount_clean(urefcount);
     free(ctx);
@@ -267,8 +275,8 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_
     if (unlikely(ctx == NULL))
         return NULL;
 
-    ctx->mgr_b = ctx->mgr_p = ctx->mgr_s = NULL;
-    ctx->num_mgr_b = ctx->num_mgr_p = ctx->num_mgr_s = 0;
+    ctx->flows_b = ctx->flows_p = ctx->flows_s = NULL;
+    ctx->num_flows_b = ctx->num_flows_p = ctx->num_flows_s = 0;
     ctx->ubuf_pool_depth = ubuf_pool_depth;
     ctx->shared_pool_depth = shared_pool_depth;
     ctx->umem_mgr = umem_mgr_use(umem_mgr);
