@@ -244,6 +244,30 @@ static int add_sub_flow(struct ubuf_super_mgr *ctx, struct uref *flow)
     return UBASE_ERR_NONE;
 }
 
+static int get_sub_flow(struct ubuf_super_mgr *ctx, int type, struct uref **flow, uint8_t which)
+{
+    struct sub_flow *array;
+    uint8_t num;
+    if (type == UBUF_SUPER_MGR_GET_BLK_FLOW) {
+        array = ctx->flows_b;
+        num = ctx->num_flows_b;
+    }
+    if (type == UBUF_SUPER_MGR_GET_PIC_FLOW) {
+        array = ctx->flows_p;
+        num = ctx->num_flows_p;
+    }
+    if (type == UBUF_SUPER_MGR_GET_SND_FLOW) {
+        array = ctx->flows_s;
+        num = ctx->num_flows_s;
+    }
+
+    if (which >= num)
+        return UBASE_ERR_INVALID;
+
+    *flow = array[which].flow;
+    return UBASE_ERR_NONE;
+}
+
 static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list args)
 {
     struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
@@ -251,6 +275,16 @@ static int ubuf_super_mgr_control(struct ubuf_mgr *mgr, int command, va_list arg
     case UBUF_SUPER_MGR_ADD_SUB_FLOW:
         UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
         return add_sub_flow(ctx, va_arg(args, struct uref*));
+
+    case UBUF_SUPER_MGR_GET_BLK_FLOW:
+    case UBUF_SUPER_MGR_GET_PIC_FLOW:
+    case UBUF_SUPER_MGR_GET_SND_FLOW:
+        UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
+        {
+            struct uref **flow = va_arg(args, struct uref**);
+            int which = va_arg(args, int);
+            return get_sub_flow(ctx, command, flow, which);
+        }
     }
 
     return UBASE_ERR_UNHANDLED;

@@ -83,6 +83,9 @@ struct ubuf_mgr *ubuf_super_mgr_alloc(uint16_t ubuf_pool_depth, uint16_t shared_
 
 enum ubuf_super_mgr_command {
     UBUF_SUPER_MGR_ADD_SUB_FLOW = UBUF_MGR_CONTROL_LOCAL,
+    UBUF_SUPER_MGR_GET_BLK_FLOW,
+    UBUF_SUPER_MGR_GET_PIC_FLOW,
+    UBUF_SUPER_MGR_GET_SND_FLOW,
 };
 
 static inline int ubuf_super_mgr_add_sub_flow(struct ubuf_mgr *mgr,
@@ -90,6 +93,27 @@ static inline int ubuf_super_mgr_add_sub_flow(struct ubuf_mgr *mgr,
 {
     return ubuf_mgr_control(mgr, UBUF_SUPER_MGR_ADD_SUB_FLOW, UBUF_SUPER_SIGNATURE,
             flow);
+}
+
+/* flows given by these functions remain owned by the super ubuf_mgr so do not
+ * free them directly */
+
+static inline int ubuf_super_mgr_get_block_flow(struct ubuf_mgr *mgr, struct uref **flow,
+        uint8_t which)
+{
+    return ubuf_mgr_control(mgr, UBUF_SUPER_MGR_GET_BLK_FLOW, UBUF_SUPER_SIGNATURE, flow, which);
+}
+
+static inline int ubuf_super_mgr_get_picture_flow(struct ubuf_mgr *mgr, struct uref **flow,
+        uint8_t which)
+{
+    return ubuf_mgr_control(mgr, UBUF_SUPER_MGR_GET_PIC_FLOW, UBUF_SUPER_SIGNATURE, flow, which);
+}
+
+static inline int ubuf_super_mgr_get_sound_flow(struct ubuf_mgr *mgr, struct uref **flow,
+        uint8_t which)
+{
+    return ubuf_mgr_control(mgr, UBUF_SUPER_MGR_GET_SND_FLOW, UBUF_SUPER_SIGNATURE, flow, which);
 }
 
 #ifdef __cplusplus
