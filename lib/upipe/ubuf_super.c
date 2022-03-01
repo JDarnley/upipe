@@ -157,6 +157,38 @@ static int get_sub_ubuf(struct ubuf_super *super, int type, struct ubuf **sub, u
     return UBASE_ERR_NONE;
 }
 
+static int replace_sub_ubuf(struct ubuf_super *super, int type, struct ubuf **old,
+        struct ubuf *new, uint8_t which)
+{
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(super->ubuf.mgr);
+
+    struct ubuf **array;
+    uint8_t num;
+    if (type == UBUF_SUPER_RPL_BLK_UBUF) {
+        array = super->buf_b;
+        num = ctx->num_flows_b;
+    }
+    if (type == UBUF_SUPER_RPL_PIC_UBUF) {
+        array = super->buf_p;
+        num = ctx->num_flows_p;
+    }
+    if (type == UBUF_SUPER_RPL_SND_UBUF) {
+        array = super->buf_s;
+        num = ctx->num_flows_s;
+    }
+
+    if (which >= num)
+        return UBASE_ERR_INVALID;
+
+    if (old == NULL)
+        ubuf_free(array[which]);
+    else
+        *old = array[which];
+
+    array[which] = new;
+    return UBASE_ERR_NONE;
+}
+
 static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
 {
     struct ubuf_super *super = ubuf_super_from_ubuf(ubuf);
@@ -169,6 +201,17 @@ static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
             struct ubuf **sub = va_arg(args, struct ubuf **);
             uint8_t which = va_arg(args, int);
             return get_sub_ubuf(super, command, sub, which);
+        }
+
+    case UBUF_SUPER_RPL_BLK_UBUF:
+    case UBUF_SUPER_RPL_PIC_UBUF:
+    case UBUF_SUPER_RPL_SND_UBUF:
+        UBASE_SIGNATURE_CHECK(args, UBUF_SUPER_SIGNATURE)
+        {
+            struct ubuf **old = va_arg(args, struct ubuf **);
+            struct ubuf *new = va_arg(args, struct ubuf *);
+            uint8_t which = va_arg(args, int);
+            return replace_sub_ubuf(super, command, old, new, which);
         }
     }
 

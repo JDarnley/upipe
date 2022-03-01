@@ -47,6 +47,9 @@ enum ubuf_super_command {
     UBUF_SUPER_GET_BLK_UBUF = UBUF_MGR_CONTROL_LOCAL,
     UBUF_SUPER_GET_PIC_UBUF,
     UBUF_SUPER_GET_SND_UBUF,
+    UBUF_SUPER_RPL_BLK_UBUF,
+    UBUF_SUPER_RPL_PIC_UBUF,
+    UBUF_SUPER_RPL_SND_UBUF,
 };
 
 static inline struct ubuf *ubuf_super_alloc(struct ubuf_mgr *mgr, const int sizes[],
@@ -74,6 +77,29 @@ static inline int ubuf_super_get_sound_ubuf(struct ubuf *ubuf, struct ubuf **sub
         uint8_t which)
 {
     return ubuf_control(ubuf, UBUF_SUPER_GET_SND_UBUF, UBUF_SUPER_SIGNATURE, sub, which);
+}
+
+/* ubufs given to these functions become owned by the super ubuf so do not free
+ * them directly
+ * the old ubufs will be given if the pointer is not NULL and become owned by
+ * the caller; if the pointer is NULL they will be released internally. */
+
+static inline int ubuf_super_replace_block_ubuf(struct ubuf *ubuf, struct ubuf **old,
+        struct ubuf *new, uint8_t which)
+{
+    return ubuf_control(ubuf, UBUF_SUPER_RPL_BLK_UBUF, UBUF_SUPER_SIGNATURE, old, new, which);
+}
+
+static inline int ubuf_super_replace_picture_ubuf(struct ubuf *ubuf, struct ubuf **old,
+        struct ubuf *new, uint8_t which)
+{
+    return ubuf_control(ubuf, UBUF_SUPER_RPL_PIC_UBUF, UBUF_SUPER_SIGNATURE, old, new, which);
+}
+
+static inline int ubuf_super_replace_sound_ubuf(struct ubuf *ubuf, struct ubuf **old,
+        struct ubuf *new, uint8_t which)
+{
+    return ubuf_control(ubuf, UBUF_SUPER_RPL_SND_UBUF, UBUF_SUPER_SIGNATURE, old, new, which);
 }
 
 /* ubuf_mgrs */
