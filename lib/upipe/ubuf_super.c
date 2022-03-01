@@ -129,11 +129,10 @@ static struct ubuf *super_alloc(struct ubuf_mgr *mgr, uint32_t signature,
     return ubuf;
 }
 
-static int get_sub_ubuf(struct ubuf_super *super, int type, struct ubuf **sub, uint8_t which)
+static int get_sub_ubuf(struct ubuf_super *super, int type, struct ubuf **sub,
+        uint8_t which)
 {
-    struct ubuf *ubuf = ubuf_super_to_ubuf(super);
-    struct ubuf_mgr *mgr = ubuf->mgr;
-    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(super->ubuf.mgr);
 
     struct ubuf **array;
     uint8_t num;
@@ -220,8 +219,7 @@ static int ubuf_super_control(struct ubuf *ubuf, int command, va_list args)
 
 static void ubuf_super_free(struct ubuf *ubuf)
 {
-    struct ubuf_mgr *mgr = ubuf->mgr;
-    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(mgr);
+    struct ubuf_super_mgr *ctx = ubuf_super_mgr_from_ubuf_mgr(ubuf->mgr);
     struct ubuf_super *super = ubuf_super_from_ubuf(ubuf);
     for (int i = 0; i < ctx->num_flows_b; i++) {
         ubuf_free(super->buf_b[i]);
