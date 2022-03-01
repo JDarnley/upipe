@@ -87,6 +87,28 @@ int main(int argc, char **argv)
     ubase_assert(ubuf_super_mgr_add_sub_flow(mgr, flow_def));
     uref_free(flow_def);
 
+    /* check getting sub flows */
+
+    flow_def = NULL;
+    ubase_assert(ubuf_super_mgr_get_block_flow(mgr, &flow_def, 0));
+    assert(flow_def != NULL);
+    flow_def = NULL;
+    ubase_assert(ubuf_super_mgr_get_picture_flow(mgr, &flow_def, 0));
+    assert(flow_def != NULL);
+    flow_def = NULL;
+    ubase_assert(ubuf_super_mgr_get_sound_flow(mgr, &flow_def, 0));
+    assert(flow_def != NULL);
+
+    /* check getting invalid subflows */
+
+    flow_def = NULL;
+    ubase_nassert(ubuf_super_mgr_get_block_flow(mgr, &flow_def, 1));
+    assert(flow_def == NULL);
+    ubase_nassert(ubuf_super_mgr_get_picture_flow(mgr, &flow_def, 1));
+    assert(flow_def == NULL);
+    ubase_nassert(ubuf_super_mgr_get_sound_flow(mgr, &flow_def, 1));
+    assert(flow_def == NULL);
+
     struct ubuf *ubuf = ubuf_super_alloc(mgr, (int[]){1}, (int[]){1},
             (int[]){1}, (int[]){1});
     assert(ubuf != NULL);
