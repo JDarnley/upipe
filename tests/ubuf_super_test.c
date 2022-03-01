@@ -30,6 +30,7 @@
 #undef NDEBUG
 
 #include "upipe/ubuf.h"
+#include "upipe/ubuf_sound.h"
 #include "upipe/ubuf_super.h"
 #include "upipe/udict.h"
 #include "upipe/udict_inline.h"
@@ -128,6 +129,19 @@ int main(int argc, char **argv)
     ubase_assert(ubuf_super_get_sound_ubuf(ubuf, &sub, 0));
     assert(sub != NULL);
 
+    /* check replacing sub ubufs */
+
+    struct ubuf_mgr *repl_mgr = ubuf_mgr_use(sub->mgr);
+    struct ubuf *old = NULL;
+    struct ubuf *new = ubuf_sound_alloc(repl_mgr, 1);
+    assert(new != NULL);
+    ubase_assert(ubuf_super_replace_sound_ubuf(ubuf, NULL, new, 0));
+    new = ubuf_sound_alloc(repl_mgr, 1);
+    assert(new != NULL);
+    ubase_assert(ubuf_super_replace_sound_ubuf(ubuf, &old, new, 0));
+    assert(old != NULL);
+    ubuf_free(old);
+
     /* check getting invalid sub ubufs */
 
     sub = NULL;
@@ -138,7 +152,17 @@ int main(int argc, char **argv)
     ubase_nassert(ubuf_super_get_sound_ubuf(ubuf, &sub, 1));
     assert(sub == NULL);
 
+    /* check replacing invalid sub ubufs */
+
+    old = NULL;
+    new = ubuf_sound_alloc(repl_mgr, 1);
+    assert(new != NULL);
+    ubase_nassert(ubuf_super_replace_sound_ubuf(ubuf, &old, new, 1));
+    assert(old == NULL);
+    ubuf_free(new);
+
     ubuf_free(ubuf);
+    ubuf_mgr_release(repl_mgr);
     ubuf_mgr_release(mgr);
     uref_mgr_release(uref_mgr);
     udict_mgr_release(udict_mgr);
