@@ -65,8 +65,9 @@ int main(int argc, char **argv)
     struct uref *flow_def = uref_alloc(uref_mgr);
     assert(flow_def != NULL);
 
-    ubase_nassert(ubuf_super_mgr_add_sub_flow(mgr, flow_def)); /* Should fail because no def is set */
+    /* check adding sub flows */
 
+    ubase_nassert(ubuf_super_mgr_add_sub_flow(mgr, flow_def)); /* Should fail because no def is set */
     ubase_assert(uref_flow_set_def(flow_def, "error"));
     ubase_nassert(ubuf_super_mgr_add_sub_flow(mgr, flow_def)); /* Should fail because it is an unknown def. */
 
@@ -109,9 +110,13 @@ int main(int argc, char **argv)
     ubase_nassert(ubuf_super_mgr_get_sound_flow(mgr, &flow_def, 1));
     assert(flow_def == NULL);
 
+    /* check allocating a ubuf */
+
     struct ubuf *ubuf = ubuf_super_alloc(mgr, (int[]){1}, (int[]){1},
             (int[]){1}, (int[]){1});
     assert(ubuf != NULL);
+
+    /* check getting sub ubufs */
 
     struct ubuf *sub = NULL;
     ubase_assert(ubuf_super_get_block_ubuf(ubuf, &sub, 0));
@@ -123,15 +128,21 @@ int main(int argc, char **argv)
     ubase_assert(ubuf_super_get_sound_ubuf(ubuf, &sub, 0));
     assert(sub != NULL);
 
+    /* check getting invalid sub ubufs */
+
+    sub = NULL;
     ubase_nassert(ubuf_super_get_block_ubuf(ubuf, &sub, 1));
+    assert(sub == NULL);
     ubase_nassert(ubuf_super_get_picture_ubuf(ubuf, &sub, 1));
+    assert(sub == NULL);
     ubase_nassert(ubuf_super_get_sound_ubuf(ubuf, &sub, 1));
+    assert(sub == NULL);
 
     ubuf_free(ubuf);
-
     ubuf_mgr_release(mgr);
     uref_mgr_release(uref_mgr);
     udict_mgr_release(udict_mgr);
     umem_mgr_release(umem_mgr);
+
     return 0;
 }
