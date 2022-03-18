@@ -33,6 +33,7 @@
 #include "upipe/ubuf_block_mem.h"
 #include "upipe/ubuf_pic_mem.h"
 #include "upipe/ubuf_sound_mem.h"
+#include "upipe/ubuf_super.h"
 #include "upipe/uref_flow.h"
 #include "upipe/uref_block_flow.h"
 #include "upipe/uref_pic_flow.h"
@@ -144,6 +145,11 @@ struct ubuf_mgr *ubuf_mem_mgr_alloc_from_flow_def(uint16_t ubuf_pool_depth,
             }
         }
         return mgr;
+    }
+
+    if (!ubase_ncmp(def, "super.")) {
+        return ubuf_super_mgr_alloc(ubuf_pool_depth, shared_pool_depth,
+                umem_mgr);
     }
 
     return NULL;
