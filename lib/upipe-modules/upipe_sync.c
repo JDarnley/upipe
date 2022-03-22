@@ -95,6 +95,18 @@ struct upipe_sync {
     /** ntsc */
     uint8_t frame_idx;
 
+    bool super_output;
+
+    /** real picture output in the ubuf_super */
+    struct uref *real_output;
+
+    /** ubuf manager */
+    struct ubuf_mgr *super_mgr;
+    /** flow format packet */
+    struct uref *super_format;
+    /** ubuf manager request */
+    struct urequest super_mgr_request;
+
     /** public upipe structure */
     struct upipe upipe;
 };
@@ -108,6 +120,9 @@ UPIPE_HELPER_UCLOCK(upipe_sync, uclock, uclock_request, NULL,
 UPIPE_HELPER_UPUMP(upipe_sync, upump, upump_mgr);
 UPIPE_HELPER_UPUMP_MGR(upipe_sync, upump_mgr);
 UPIPE_HELPER_OUTPUT(upipe_sync, output, flow_def, output_state, request_list);
+UPIPE_HELPER_UBUF_MGR(upipe_sync, super_mgr, super_format, super_mgr_request,
+        NULL, upipe_sync_register_output_request,
+        upipe_sync_unregister_output_request)
 
 /** upipe_sync_sub structure */
 struct upipe_sync_sub {
@@ -988,6 +1003,8 @@ static struct upipe *upipe_sync_alloc(struct upipe_mgr *mgr,
 
     struct upipe_sync *upipe_sync = upipe_sync_from_upipe(upipe);
 
+    upipe_sync->real_output = NULL;
+    upipe_sync->super_output = false;
     upipe_sync->latency = 0;
     upipe_sync->pts = 0;
     upipe_sync->ticks_per_frame = 0;
@@ -1003,6 +1020,7 @@ static struct upipe *upipe_sync_alloc(struct upipe_mgr *mgr,
     upipe_sync_init_output(upipe);
     upipe_sync_init_sub_subs(upipe);
     upipe_sync_init_sub_mgr(upipe);
+    upipe_sync_init_ubuf_mgr(upipe);
 
     upipe_throw_ready(upipe);
     return upipe;
@@ -1097,12 +1115,14 @@ static void upipe_sync_free(struct upipe *upipe)
 
     ulist_uref_flush(&upipe_sync->urefs);
     uref_free(upipe_sync->uref);
+    uref_free(upipe_sync->real_output);
 
     upipe_sync_clean_urefcount(upipe);
     upipe_sync_clean_uclock(upipe);
     upipe_sync_clean_output(upipe);
     upipe_sync_clean_upump(upipe);
     upipe_sync_clean_upump_mgr(upipe);
+    upipe_sync_clean_ubuf_mgr(upipe);
     upipe_sync_clean_sub_subs(upipe);
     upipe_sync_free_void(upipe);
 }
