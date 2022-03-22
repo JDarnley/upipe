@@ -1070,7 +1070,41 @@ static int upipe_sync_set_flow_def(struct upipe *upipe, struct uref *flow_def)
     upipe_sync->latency = latency;
     upipe_sync_set_latency(upipe_sync_to_upipe(upipe_sync));
 
+    if (upipe_sync->super_output) {
+        /* check if flow has changed plus latency */
+        if (!uref_pic_flow_compare_format(flow_def, upipe_sync->real_output)
+                || uref_clock_cmp_latency(flow_def, upipe_sync->real_output)) {
+            /* need new super_mgr */
+            ubuf_mgr_release(upipe_sync->super_mgr);
+            upipe_sync->super_mgr = NULL;
+            upipe_sync->real_output = flow_def;
+            return UBASE_ERR_NONE;
+        }
+    }
+
     upipe_sync_store_flow_def(upipe, flow_def);
+
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the content of an sync option.
+ *
+ * @param upipe description structure of the pipe
+ * @param option name of the option
+ * @param content content of the option
+ * @return an error code
+ */
+static int upipe_sync_set_option(struct upipe *upipe,
+                                 const char *option, const char *content)
+{
+    struct upipe_sync *upipe_sync = upipe_sync_from_upipe(upipe);
+    if (!option || !content)
+        return UBASE_ERR_INVALID;
+
+    if (!strcmp(option, "super-output"))
+        upipe_sync->super_output = atoi(content);
+    else
+        return UBASE_ERR_INVALID;
 
     return UBASE_ERR_NONE;
 }
@@ -1097,7 +1131,11 @@ static int upipe_sync_control(struct upipe *upipe, int command, va_list args)
            return UBASE_ERR_NONE;
         case UPIPE_ATTACH_UPUMP_MGR:
            return upipe_sync_attach_upump_mgr(upipe);
-
+        case UPIPE_SET_OPTION: {
+            const char *option = va_arg(args, const char *);
+            const char *content = va_arg(args, const char *);
+            return upipe_sync_set_option(upipe, option, content);
+        }
         default:
             return UBASE_ERR_UNHANDLED;
     }
