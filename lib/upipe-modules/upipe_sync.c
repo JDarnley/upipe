@@ -28,6 +28,7 @@
  */
 
 #include "upipe/ubase.h"
+#include "upipe/ubuf_super.h"
 #include "upipe/uref.h"
 #include "upipe/uref_clock.h"
 #include "upipe/uref_sound_flow.h"
@@ -359,10 +360,12 @@ static int upipe_sync_sub_set_flow_def(struct upipe *upipe, struct uref *flow_de
     if (rate != 48000)
         return UBASE_ERR_INVALID;
 
-    if (!upipe_sync_sub->uref_mgr)
-        upipe_sync_sub_require_uref_mgr(upipe);
-    if (!upipe_sync_sub->ubuf_mgr)
-        upipe_sync_sub_require_ubuf_mgr(upipe, uref_dup(flow_def));
+    if (!upipe_sync->super_output) {
+        if (!upipe_sync_sub->uref_mgr)
+            upipe_sync_sub_require_uref_mgr(upipe);
+        if (!upipe_sync_sub->ubuf_mgr)
+            upipe_sync_sub_require_ubuf_mgr(upipe, uref_dup(flow_def));
+    }
 
     flow_def = uref_dup(flow_def);
     if (!flow_def)
@@ -382,6 +385,17 @@ static int upipe_sync_sub_set_flow_def(struct upipe *upipe, struct uref *flow_de
     }
 
     upipe_sync_sub->sound = true;
+
+    if (upipe_sync->super_output) {
+        /* check if flow has changed plus latency and channel index */
+        if (!uref_sound_flow_compare_format(flow_def, upipe_sync_sub->flow_def)
+                || uref_clock_cmp_latency(flow_def, upipe_sync_sub->flow_def)
+                || uref_sound_flow_cmp_channel_idx(flow_def, upipe_sync_sub->flow_def)) {
+            /* need new super_mgr */
+            ubuf_mgr_release(upipe_sync->super_mgr);
+            upipe_sync->super_mgr = NULL;
+        }
+    }
 
     upipe_sync_sub_store_flow_def(upipe, flow_def);
 
@@ -755,10 +769,44 @@ static void output_sound(struct upipe *upipe, const struct urational *fps,
     }
 }
 
+static int new_super_mgr(struct upipe_sync *upipe_sync)
+{
+    struct upipe *upipe = upipe_sync_to_upipe(upipe_sync);
+
+    /* alloc new output flow_def */
+    struct uref *super_output = uref_alloc(upipe_sync->real_output->mgr);
+    if (!super_output)
+        return UBASE_ERR_ALLOC;
+    ubase_assert(uref_flow_set_def(super_output, "super."));
+    upipe_sync_store_flow_def(upipe, super_output);
+
+    if (upipe_sync_demand_ubuf_mgr(upipe, super_output))
+        return UBASE_ERR_ALLOC;
+
+    /* add pic flow */
+    UBASE_RETURN(ubuf_super_mgr_add_sub_flow(upipe_sync->super_mgr, upipe_sync->real_output));
+    /* add all sound flows */
+    struct uchain *uchain = NULL;
+    ulist_foreach(&upipe_sync->subs, uchain) {
+        struct upipe_sync_sub *upipe_sync_sub = upipe_sync_sub_from_uchain(uchain);
+        UBASE_RETURN(ubuf_super_mgr_add_sub_flow(upipe_sync->super_mgr, upipe_sync_sub->flow_def));
+    }
+
+    return UBASE_ERR_NONE;
+}
+
 static void cb(struct upump *upump)
 {
     struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
     struct upipe_sync *upipe_sync = upipe_sync_from_upipe(upipe);
+
+    if (upipe_sync->super_output && !upipe_sync->super_mgr) {
+        int ret = new_super_mgr(upipe_sync);
+        if (!ubase_check(ret)) {
+            upipe_throw_error(upipe, ret);
+            return;
+        }
+    }
 
     uint64_t now = uclock_now(upipe_sync->uclock);
     if (now - upipe_sync->ticks_per_frame > upipe_sync->pts)
