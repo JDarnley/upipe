@@ -129,6 +129,8 @@ struct uref {
     uint64_t rap_cr_delay;
     /** private for local pipe user */
     uint64_t priv;
+    /** small buffer for miscellaneous use */
+    uint8_t priv2[128];
 };
 
 UBASE_FROM_TO(uref, uchain, uchain, uchain)
@@ -193,6 +195,7 @@ static inline void uref_init(struct uref *uref)
     uref->cr_dts_delay = UINT64_MAX;
     uref->rap_cr_delay = UINT64_MAX;
     uref->priv = UINT64_MAX;
+    memset(uref->priv2, 0, sizeof uref->priv2);
 }
 
 /** @This allocates and initializes a new uref.
@@ -284,6 +287,7 @@ static inline struct uref *uref_dup_inner(struct uref *uref)
     new_uref->cr_dts_delay = uref->cr_dts_delay;
     new_uref->rap_cr_delay = uref->rap_cr_delay;
     new_uref->priv = uref->priv;
+    memcpy(new_uref->priv2, uref->priv2, sizeof uref->priv2);
 
     return new_uref;
 }
@@ -349,6 +353,37 @@ static inline struct uref *uref_fork(struct uref *uref, struct ubuf *ubuf)
 
     uref_attach_ubuf(new_uref, ubuf);
     return new_uref;
+}
+
+/** @This copies from the given buffer into priv2 and clears the remaining space.
+ *
+ * @param uref destination uref structure
+ * @param buf data to be copied
+ * @param size how much to be copied
+ * @return error if the size is too large
+ */
+static inline int uref_set_priv2(struct uref *uref, const void *buf, const size_t size)
+{
+    if (size > sizeof uref->priv2)
+        return UBASE_ERR_INVALID;
+    memcpy(uref->priv2, buf, size);
+    memset(uref->priv2 + size, 0, sizeof uref->priv2 - size);
+    return UBASE_ERR_NONE;
+}
+
+/** @This copies into the given buffer from priv2.
+ *
+ * @param buf destination buffer
+ * @param uref source uref structure
+ * @param size how much to be copied
+ * @return error if the size is too large
+ */
+static inline int uref_get_priv2(void *buf, const struct uref *uref, const size_t size)
+{
+    if (size > sizeof uref->priv2)
+        return UBASE_ERR_INVALID;
+    memcpy(buf, uref->priv2, size);
+    return UBASE_ERR_NONE;
 }
 
 /** @This increments the reference count of a uref manager.
