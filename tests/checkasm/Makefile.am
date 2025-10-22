@@ -31,7 +31,8 @@ if HAVE_X86ASM
 checkasm_SOURCES += checkasm_x86.asm timer_x86.h
 checkasm_LDADD += \
     $(top_builddir)/lib/upipe-v210/v210dec.o \
-    $(top_builddir)/lib/upipe-v210/v210enc.o
+    $(top_builddir)/lib/upipe-v210/v210enc.o \
+    $(NULL)
 
 if HAVE_BITSTREAM
 checkasm_LDADD += \
