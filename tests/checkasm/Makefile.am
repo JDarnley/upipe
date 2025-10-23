@@ -33,6 +33,7 @@ checkasm_LDADD += \
     $(top_builddir)/lib/upipe-v210/v210dec.o \
     $(top_builddir)/lib/upipe-v210/v210enc.o \
     $(NULL)
+CLEANFILES = x86/checkasm.lo x86/.libs/checkasm.o
 
 if HAVE_BITSTREAM
 checkasm_LDADD += \
