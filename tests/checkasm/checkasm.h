@@ -31,10 +31,17 @@
 #define ARCH_LOONGARCH 0
 #define ARCH_MIPS 0
 #define ARCH_PPC 0
+#define ARCH_RISCV 0
 #define CONFIG_LINUX_PERF 0
 #define CONFIG_MACOS_KPERF 0
+#define HAVE_CLOCK_GETTIME 1
+#define HAVE_GETHRTIME 0
+#define HAVE_INLINE_ASM 1
 #define HAVE_IO_H 0
-#define HAVE_ISATTY 0
+#define HAVE_ISATTY 1
+#define HAVE_MACH_ABSOLUTE_TIME 0
+#define HAVE_PRCTL 1
+#define HAVE_RDTSC 0
 #define HAVE_SETCONSOLETEXTATTRIBUTE 0
 
 #if defined(__i386__) || defined(__i686__) || defined(__x86_64__)
@@ -58,6 +65,8 @@
     #define ARCH_AARCH64 0
 #endif
 
+/* TODO: copy the real emmc_c from FFmpeg if emms is ever needed. */
+#define emms_c()
 
 #if CONFIG_LINUX_PERF
 #include <unistd.h> // read(3)
@@ -71,12 +80,42 @@
 #include <libavutil/avstring.h>
 #include <libavutil/cpu.h>
 #include <libavutil/lfg.h>
-
-/* silence warnings caused by unknown config variables from FFmpeg */
-#define HAVE_INLINE_ASM 1
-#define HAVE_MACH_ABSOLUTE_TIME 0
-#define HAVE_RDTSC 0
 #include "timer.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#if ARCH_X86_32
+#include <setjmp.h>
+typedef jmp_buf checkasm_context;
+#define checkasm_save_context() checkasm_handle_signal(setjmp(checkasm_context_buf))
+#define checkasm_load_context(s) longjmp(checkasm_context_buf, s)
+#elif WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+/* setjmp/longjmp on Windows on architectures using SEH (all except x86_32)
+ * will try to use SEH to unwind the stack, which doesn't work for assembly
+ * functions without unwind information. */
+typedef struct { CONTEXT c; int status; } checkasm_context;
+#define checkasm_save_context() \
+    (checkasm_context_buf.status = 0, \
+     RtlCaptureContext(&checkasm_context_buf.c), \
+     checkasm_handle_signal(checkasm_context_buf.status))
+#define checkasm_load_context(s) \
+    (checkasm_context_buf.status = s, \
+     RtlRestoreContext(&checkasm_context_buf.c, NULL))
+#else
+#define checkasm_context void*
+#define checkasm_save_context() 0
+#define checkasm_load_context() do {} while (0)
+#endif
+#elif defined(_WASI_EMULATED_SIGNAL)
+#define checkasm_context void*
+#define checkasm_save_context() 0
+#define checkasm_load_context() do {} while (0)
+#else
+#include <setjmp.h>
+typedef sigjmp_buf checkasm_context;
+#define checkasm_save_context() checkasm_handle_signal(sigsetjmp(checkasm_context_buf, 1))
+#define checkasm_load_context(s) siglongjmp(checkasm_context_buf, s)
+#endif
 
 void checkasm_check_planar10_input(void);
 void checkasm_check_planar8_input(void);
@@ -88,9 +127,12 @@ struct CheckasmPerf;
 
 void *checkasm_check_func(void *func, const char *name, ...) av_printf_format(2, 3);
 int checkasm_bench_func(void);
-void checkasm_fail_func(const char *msg, ...) av_printf_format(1, 2);
+int checkasm_fail_func(const char *msg, ...) av_printf_format(1, 2);
 struct CheckasmPerf *checkasm_get_perf_context(void);
 void checkasm_report(const char *name, ...) av_printf_format(1, 2);
+void checkasm_set_signal_handler_state(int enabled);
+int checkasm_handle_signal(int s);
+extern checkasm_context checkasm_context_buf;
 
 /* float compare utilities */
 int float_near_ulp(float a, float b, unsigned max_ulp);
@@ -109,12 +151,12 @@ int double_near_abs_eps_array(const double *a, const double *b, double eps,
 extern AVLFG checkasm_lfg;
 #define rnd() av_lfg_get(&checkasm_lfg)
 
-static av_unused void *func_ref, *func_new;
+av_unused static void *func_ref, *func_new;
 
-#define BENCH_RUNS 1000 /* Trade-off between accuracy and speed */
+extern uint64_t bench_runs;
 
 /* Decide whether or not the specified function needs to be tested */
-#define check_func(func, ...) (func_ref = checkasm_check_func((func_new = func), __VA_ARGS__))
+#define check_func(func, ...) (checkasm_save_context(), func_ref = checkasm_check_func((func_new = func), __VA_ARGS__))
 
 /* Declare the function prototype. The first argument is the return value, the remaining
  * arguments are the function parameters. Naming parameters is optional. */
@@ -129,9 +171,12 @@ static av_unused void *func_ref, *func_new;
 #define report checkasm_report
 
 /* Call the reference function */
-#define call_ref(...) ((func_type *)func_ref)(__VA_ARGS__)
+#define call_ref(...)\
+    (checkasm_set_signal_handler_state(1),\
+     ((func_type *)func_ref)(__VA_ARGS__));\
+    checkasm_set_signal_handler_state(0)
 
-#if ARCH_X86 && defined(HAVE_X86ASM)
+#if ARCH_X86 && HAVE_X86ASM
 /* Verifies that clobbered callee-saved registers are properly saved and restored
  * and that either no MMX registers are touched or emms is issued */
 void checkasm_checked_call(void *func, ...);
@@ -162,16 +207,21 @@ void checkasm_stack_clobber(uint64_t clobber, ...);
         ((cpu_flags) & av_get_cpu_flags()) ? (void *)checkasm_checked_call_emms : \
                                              (void *)checkasm_checked_call;
 #define CLOB (UINT64_C(0xdeadbeefdeadbeef))
-#define call_new(...) (checkasm_stack_clobber(CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,\
+#define call_new(...) (checkasm_set_signal_handler_state(1),\
+                       checkasm_stack_clobber(CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,\
                                               CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB),\
-                      checked_call(func_new, 0, 0, 0, 0, 0, __VA_ARGS__))
+                       checked_call(func_new, 0, 0, 0, 0, 0, __VA_ARGS__));\
+                      checkasm_set_signal_handler_state(0)
 #elif ARCH_X86_32
 #define declare_new(ret, ...) ret (*checked_call)(void *, __VA_ARGS__) = (void *)checkasm_checked_call;
 #define declare_new_float(ret, ...) ret (*checked_call)(void *, __VA_ARGS__) = (void *)checkasm_checked_call_float;
 #define declare_new_emms(cpu_flags, ret, ...) ret (*checked_call)(void *, __VA_ARGS__) = \
         ((cpu_flags) & av_get_cpu_flags()) ? (void *)checkasm_checked_call_emms :        \
                                              (void *)checkasm_checked_call;
-#define call_new(...) checked_call(func_new, __VA_ARGS__)
+#define call_new(...)\
+    (checkasm_set_signal_handler_state(1),\
+     checked_call(func_new, __VA_ARGS__));\
+    checkasm_set_signal_handler_state(0)
 #endif
 #elif ARCH_ARM && HAVE_ARMV5TE_EXTERNAL
 /* Use a dummy argument, to offset the real parameters by 2, not only 1.
@@ -183,7 +233,10 @@ extern void (*checkasm_checked_call)(void *func, int dummy, ...);
 #define declare_new(ret, ...) ret (*checked_call)(void *, int dummy, __VA_ARGS__, \
                                                   int, int, int, int, int, int, int, int, \
                                                   int, int, int, int, int, int, int) = (void *)checkasm_checked_call;
-#define call_new(...) checked_call(func_new, 0, __VA_ARGS__, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0)
+#define call_new(...) \
+    (checkasm_set_signal_handler_state(1),\
+     checked_call(func_new, 0, __VA_ARGS__, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0));\
+    checkasm_set_signal_handler_state(0)
 #elif ARCH_AARCH64 && !defined(__APPLE__)
 void checkasm_stack_clobber(uint64_t clobber, ...);
 void checkasm_checked_call(void *func, ...);
@@ -192,16 +245,39 @@ void checkasm_checked_call(void *func, ...);
                                                   int, int, int, int, int, int, int)\
                               = (void *)checkasm_checked_call;
 #define CLOB (UINT64_C(0xdeadbeefdeadbeef))
-#define call_new(...) (checkasm_stack_clobber(CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,\
+#define call_new(...) (checkasm_set_signal_handler_state(1),\
+                       checkasm_stack_clobber(CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,\
                                               CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB,CLOB),\
                       checked_call(func_new, 0, 0, 0, 0, 0, 0, 0, __VA_ARGS__,\
-                                   7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0))
+                                   7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0));\
+                     checkasm_set_signal_handler_state(0)
+#elif ARCH_RISCV
+void checkasm_set_function(void *);
+void *checkasm_get_wrapper(void);
+
+#if HAVE_RV && (__riscv_xlen == 64) && defined (__riscv_d)
+#define declare_new(ret, ...) \
+    ret (*checked_call)(__VA_ARGS__) = checkasm_get_wrapper();
+#define call_new(...) \
+    (checkasm_set_signal_handler_state(1),\
+     checkasm_set_function(func_new), checked_call(__VA_ARGS__));\
+    checkasm_set_signal_handler_state(0)
+#else
+#define declare_new(ret, ...)
+#define call_new(...)\
+    (checkasm_set_signal_handler_state(1),\
+     ((func_type *)func_new)(__VA_ARGS__));\
+    checkasm_set_signal_handler_state(0)
+#endif
 #else
 #define declare_new(ret, ...)
 #define declare_new_float(ret, ...)
 #define declare_new_emms(cpu_flags, ret, ...)
 /* Call the function */
-#define call_new(...) ((func_type *)func_new)(__VA_ARGS__)
+#define call_new(...)\
+    (checkasm_set_signal_handler_state(1),\
+     ((func_type *)func_new)(__VA_ARGS__));\
+    checkasm_set_signal_handler_state(0)
 #endif
 
 #ifndef declare_new_emms
@@ -238,6 +314,22 @@ typedef struct CheckasmPerf {
 #define PERF_STOP(t)  t = AV_READ_TIME() - t
 #endif
 
+#define CALL4(...)\
+    do {\
+        tfunc(__VA_ARGS__); \
+        tfunc(__VA_ARGS__); \
+        tfunc(__VA_ARGS__); \
+        tfunc(__VA_ARGS__); \
+    } while (0)
+
+#define CALL16(...)\
+    do {\
+        CALL4(__VA_ARGS__); \
+        CALL4(__VA_ARGS__); \
+        CALL4(__VA_ARGS__); \
+        CALL4(__VA_ARGS__); \
+    } while (0)
+
 /* Benchmark the function */
 #define bench_new(...)\
     do {\
@@ -246,22 +338,24 @@ typedef struct CheckasmPerf {
             av_unused const int sysfd = perf->sysfd;\
             func_type *tfunc = func_new;\
             uint64_t tsum = 0;\
-            int ti, tcount = 0;\
+            uint64_t ti, tcount = 0;\
             uint64_t t = 0; \
-            for (ti = 0; ti < BENCH_RUNS; ti++) {\
+            const uint64_t truns = FFMAX(bench_runs >> 3, 1);\
+            checkasm_set_signal_handler_state(1);\
+            for (ti = 0; ti < truns; ti++) {\
                 PERF_START(t);\
-                tfunc(__VA_ARGS__);\
-                tfunc(__VA_ARGS__);\
-                tfunc(__VA_ARGS__);\
-                tfunc(__VA_ARGS__);\
+                CALL16(__VA_ARGS__);\
+                CALL16(__VA_ARGS__);\
                 PERF_STOP(t);\
                 if (t*tcount <= tsum*4 && ti > 0) {\
                     tsum += t;\
                     tcount++;\
                 }\
             }\
-            perf->cycles += t;\
-            perf->iterations++;\
+            emms_c();\
+            perf->cycles += tsum;\
+            perf->iterations += tcount;\
+            checkasm_set_signal_handler_state(0);\
         }\
     } while (0)
 #else
@@ -270,20 +364,90 @@ typedef struct CheckasmPerf {
 #define PERF_STOP(t)   while(0)
 #endif
 
+#define BUF_RECT(type, name, w, h) \
+    LOCAL_ALIGNED_32(type, name##_buf, [((h)+32)*(FFALIGN(w,64)+64) + 64]); \
+    av_unused ptrdiff_t name##_stride = sizeof(type)*(FFALIGN(w,64)+64); \
+    av_unused int name##_buf_h = (h)+32; \
+    type *name = name##_buf + (FFALIGN(w,64)+64)*16 + 64
+
+#define PIXEL_RECT(name, w, h) \
+    LOCAL_ALIGNED_32(uint8_t, name##_buf, [sizeof(uint16_t) * (((h)+32)*(FFALIGN(w,64)+64) + 64)],); \
+    av_unused ptrdiff_t name##_stride = sizeof(uint16_t) * (FFALIGN(w,64)+64); \
+    av_unused int name##_buf_h = (h)+32; \
+    uint8_t *name = name##_buf + (FFALIGN(w,64)+64)*16 + 64
+
+#define CLEAR_BUF_RECT(name) \
+    memset(name##_buf, 0x99, name##_stride * name##_buf_h + 64)
+#define CLEAR_PIXEL_RECT(name) \
+    CLEAR_BUF_RECT(name)
+
 #define DECL_CHECKASM_CHECK_FUNC(type) \
-int checkasm_check_##type(const char *const file, const int line, \
-                          const type *const buf1, const ptrdiff_t stride1, \
-                          const type *const buf2, const ptrdiff_t stride2, \
-                          const int w, const int h, const char *const name)
+int checkasm_check_##type(const char *file, int line, \
+                          const type *buf1, ptrdiff_t stride1, \
+                          const type *buf2, ptrdiff_t stride2, \
+                          int w, int h, const char *name, \
+                          int align_w, int align_h, \
+                          int padding)
 
 DECL_CHECKASM_CHECK_FUNC(uint8_t);
 DECL_CHECKASM_CHECK_FUNC(uint16_t);
+DECL_CHECKASM_CHECK_FUNC(uint32_t);
 DECL_CHECKASM_CHECK_FUNC(int16_t);
 DECL_CHECKASM_CHECK_FUNC(int32_t);
+
+int checkasm_check_float_ulp(const char *file, int line,
+                             const float *buf1, ptrdiff_t stride1,
+                             const float *buf2, ptrdiff_t stride2,
+                             int w, int h, const char *name,
+                             unsigned max_ulp, int align_w, int align_h,
+                             int padding);
 
 #define PASTE(a,b) a ## b
 #define CONCAT(a,b) PASTE(a,b)
 
-#define checkasm_check(prefix, ...) CONCAT(checkasm_check_, prefix)(__FILE__, __LINE__, __VA_ARGS__)
+#define checkasm_check2(prefix, ...) CONCAT(checkasm_check_, prefix)(__FILE__, __LINE__, __VA_ARGS__)
+#define checkasm_check(prefix, ...) checkasm_check2(prefix, __VA_ARGS__, 0, 0, 0)
+/* Check a pointer from BUF_RECT, checking whether there have been
+ * writes outside of the designated area. */
+#define checkasm_check_padded(...) \
+    checkasm_check2(__VA_ARGS__, 1, 1, 8)
+/* Check a pointer from BUF_RECT, checking whether there have been
+ * writes outside of the designated area. Allow writing slightly past the
+ * end of the buffer, by aligning w/h to align_w/align_h, and checking
+ * for overwrites outside of that. */
+#define checkasm_check_padded_align(...) \
+    checkasm_check2(__VA_ARGS__, 8)
+
+/* This assumes that there is a local variable named "bit_depth".
+ * For tests that don't have that and only operate on a single
+ * bitdepth, just call checkasm_check(uint8_t, ...) directly. */
+#define checkasm_check_pixel2(buf1, stride1, buf2, stride2, ...) \
+    ((bit_depth > 8) ?                                          \
+     checkasm_check2(uint16_t, (const uint16_t*)buf1, stride1,   \
+                               (const uint16_t*)buf2, stride2,   \
+                               __VA_ARGS__) :                    \
+     checkasm_check2(uint8_t,  (const uint8_t*) buf1, stride1,   \
+                               (const uint8_t*) buf2, stride2,   \
+                               __VA_ARGS__))
+#define checkasm_check_pixel(...) \
+    checkasm_check_pixel2(__VA_ARGS__, 0, 0, 0)
+#define checkasm_check_pixel_padded(...) \
+    checkasm_check_pixel2(__VA_ARGS__, 1, 1, 8)
+#define checkasm_check_pixel_padded_align(...) \
+    checkasm_check_pixel2(__VA_ARGS__, 8)
+
+/* This assumes that there is a local variable named "bit_depth"
+ * and that the type-specific buffers obey the name ## _BITDEPTH
+ * convention.
+ * For tests that don't have that and only operate on a single
+ * bitdepth, just call checkasm_check(uint8_t, ...) directly. */
+#define checkasm_check_dctcoef(buf1, stride1, buf2, stride2, ...) \
+    ((bit_depth > 8) ?                                        \
+     checkasm_check(int32_t, buf1 ## _32, stride1,            \
+                             buf2 ## _32, stride2,            \
+                             __VA_ARGS__) :                   \
+     checkasm_check(int16_t, buf1 ## _16, stride1,            \
+                             buf2 ## _16, stride2,            \
+                             __VA_ARGS__))
 
 #endif /* TESTS_CHECKASM_CHECKASM_H */

@@ -28,7 +28,7 @@ checkasm_LDADD += \
 endif
 
 if HAVE_X86ASM
-checkasm_SOURCES += checkasm_x86.asm timer_x86.h
+checkasm_SOURCES += x86/checkasm.asm x86/timer.h
 checkasm_LDADD += \
     $(top_builddir)/lib/upipe-v210/v210dec.o \
     $(top_builddir)/lib/upipe-v210/v210enc.o \
@@ -43,7 +43,7 @@ endif
 endif
 
 if ARCH_AARCH64
-checkasm_SOURCES += asm_aarch64.S checkasm_aarch64.S timer_aarch64.h
+checkasm_SOURCES += aarch64/asm.S aarch64/checkasm.S aarch64/timer.h
 endif
 
 V_ASM = $(V_ASM_@AM_V@)
