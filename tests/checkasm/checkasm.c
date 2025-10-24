@@ -68,7 +68,7 @@
 #if HAVE_IO_H
 #include <io.h>
 #endif
-#if HAVE_PRCTL
+#if defined(HAVE_SYS_PRCTL_H)
 #include <sys/prctl.h>
 #endif
 
@@ -766,7 +766,7 @@ int main(int argc, char *argv[])
     sigaction(SIGILL,  &signal_handler_act, NULL);
     sigaction(SIGSEGV, &signal_handler_act, NULL);
 #endif
-#if HAVE_PRCTL && defined(PR_SET_UNALIGN)
+#if defined(HAVE_SYS_PRCTL_H) && defined(PR_SET_UNALIGN)
     prctl(PR_SET_UNALIGN, PR_UNALIGN_SIGBUS);
 #endif
 #if ARCH_ARM && HAVE_ARMV5TE_EXTERNAL
