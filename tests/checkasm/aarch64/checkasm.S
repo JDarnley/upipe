@@ -20,7 +20,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111, USA.
  *****************************************************************************/
 
-#include "asm_aarch64.S"
+#include "aarch64/asm.S"
 
 const register_init, align=4
         .quad 0x21f86d66c8ca00ce
