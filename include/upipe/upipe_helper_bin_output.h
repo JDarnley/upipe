@@ -46,7 +46,7 @@ extern "C" {
  * which internally implement an inner pipeline to handle a given task. It also
  * acts as a proxy to the last element of the inner pipeline.
  *
- * @strong{You must} add four members to your private upipe structure,
+ * @strong{You must} add two members to your private upipe structure,
  * for instance:
  * @code
  *  struct upipe *output;

@@ -48,7 +48,7 @@ extern "C" {
  * which internally implement an inner pipeline to handle a given task. This
  * helper deals with the input of the inner pipeline and incoming requests.
  *
- * @strong{You must} add a member to your private upipe structure,
+ * @strong{You must} add one member to your private upipe structure,
  * for instance:
  * @code
  *  struct uchain input_request_list;

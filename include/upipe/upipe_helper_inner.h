@@ -34,7 +34,7 @@ extern "C" {
 /** @This declares functions dealing with inner pipes,
  * which internally implement an inner pipeline to handle a given task.
  *
- * You must add four members to your private upipe structure, for instance:
+ * You must add one member to your private upipe structure, for instance:
  * @code
  *  struct upipe *inner;
  * @end code

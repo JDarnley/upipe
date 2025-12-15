@@ -37,7 +37,7 @@ extern "C" {
 /** @This declares functions dealing with inner pipe probes,
  * which internally catch and forward inner pipeline events.
  *
- * You must add four members to your private upipe structure, for instance:
+ * You must add one member to your private upipe structure, for instance:
  * @code
  *  struct uprobe inner_probe;
  * @end code
