@@ -384,6 +384,12 @@ static void upipe_rtpr_sub_input(struct upipe *upipe, struct uref *uref,
     date_sys += upipe_rtpr->delay;
     uref_clock_set_date_sys(uref, date_sys, type);
 
+    struct uref *dup = uref_dup(uref);
+    if (likely(dup))
+        upipe_rtpr_sub_output(upipe, dup, upump_p);
+    else
+        upipe_throw_error(upipe, UBASE_ERR_ALLOC);
+
     upipe_rtpr_list_add(&upipe_rtpr->upipe, uref, upipe);
 }
 
