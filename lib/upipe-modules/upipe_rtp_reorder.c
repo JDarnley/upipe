@@ -103,8 +103,14 @@ struct upipe_rtpr_sub {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** flow_definition packet */
+    /** output pipe */
+    struct upipe *output;
+    /** flow definition packet */
     struct uref *flow_def;
+    /** output state */
+    enum upipe_helper_output_state output_state;
+    /** list of output requests */
+    struct uchain request_list;
 
     /** maximum observed delay */
     uint64_t max_delay;
@@ -117,6 +123,7 @@ UPIPE_HELPER_UPIPE(upipe_rtpr_sub, upipe, UPIPE_RTPR_INPUT_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_rtpr_sub, urefcount, upipe_rtpr_sub_free)
 UPIPE_HELPER_VOID(upipe_rtpr_sub)
 UPIPE_HELPER_SUBPIPE(upipe_rtpr, upipe_rtpr_sub, input, sub_mgr, inputs, uchain)
+UPIPE_HELPER_OUTPUT(upipe_rtpr_sub, output, flow_def, output_state, request_list);
 
 static inline bool seq_num_lt(uint16_t s1, uint16_t s2)
 {
@@ -180,14 +187,6 @@ static int upipe_rtpr_check(struct upipe *upipe, struct uref *flow_format)
 
     upump_start(upipe_rtpr->upump);
 
-    return UBASE_ERR_NONE;
-}
-
-static int upipe_rtpr_sub_get_flow_def(struct upipe *upipe, struct uref **p)
-{
-    struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
-    assert(upipe_rtpr_sub != NULL);
-    *p = upipe_rtpr_sub->flow_def;
     return UBASE_ERR_NONE;
 }
 
