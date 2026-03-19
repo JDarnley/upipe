@@ -194,10 +194,8 @@ static int upipe_rtpr_sub_set_flow_def(struct upipe *upipe,
                                        struct uref *flow_def)
 {
     struct upipe_rtpr *upipe_rtpr = upipe_rtpr_from_sub_mgr(upipe->mgr);
-    struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
-
     upipe_rtpr_store_flow_def(&upipe_rtpr->upipe, uref_dup(flow_def));
-    upipe_rtpr_sub->flow_def = uref_dup(flow_def);
+    upipe_rtpr_sub_store_flow_def(upipe, uref_dup(flow_def));
     return UBASE_ERR_NONE;
 }
 
@@ -224,6 +222,7 @@ static struct upipe *upipe_rtpr_sub_alloc(struct upipe_mgr *mgr,
     upipe_rtpr_sub->max_delay = UINT64_MAX;
     upipe_rtpr_sub_init_urefcount(upipe);
     upipe_rtpr_sub_init_sub(upipe);
+    upipe_rtpr_sub_init_output(upipe);
     upipe_throw_ready(upipe);
     return upipe;
 }
@@ -240,18 +239,11 @@ static int upipe_rtpr_sub_control(struct upipe *upipe,
                                   int command, va_list args)
 {
     UBASE_HANDLED_RETURN(upipe_rtpr_sub_control_super(upipe, command, args));
+    UBASE_HANDLED_RETURN(upipe_rtpr_sub_control_output(upipe, command, args));
 
     struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
 
     switch (command) {
-        case UPIPE_REGISTER_REQUEST:
-        case UPIPE_UNREGISTER_REQUEST:
-            return upipe_control_provide_request(upipe, command, args);
-
-        case UPIPE_GET_FLOW_DEF: {
-            struct uref **p = va_arg(args, struct uref **);
-            return upipe_rtpr_sub_get_flow_def(upipe, p);
-        }
         case UPIPE_SET_FLOW_DEF: {
             struct uref *flow_def = va_arg(args, struct uref *);
             return upipe_rtpr_sub_set_flow_def(upipe, flow_def);
@@ -401,13 +393,8 @@ static void upipe_rtpr_sub_input(struct upipe *upipe, struct uref *uref,
  */
 static void upipe_rtpr_sub_free(struct upipe *upipe)
 {
-    struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
-
     upipe_throw_dead(upipe);
-
-    if (upipe_rtpr_sub->flow_def)
-        uref_free(upipe_rtpr_sub->flow_def);
-
+    upipe_rtpr_sub_clean_output(upipe);
     upipe_rtpr_sub_clean_sub(upipe);
     upipe_rtpr_sub_clean_urefcount(upipe);
     upipe_rtpr_sub_free_void(upipe);
