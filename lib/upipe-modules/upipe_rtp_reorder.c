@@ -36,10 +36,6 @@
 #include <stdarg.h>
 #include <assert.h>
 
-/** @hidden */
-static bool upipe_rtpr_sub_output(struct upipe *upipe, struct uref *uref,
-                                  struct upump **upump_p);
-
 /** upipe_rtpr structure */
 struct upipe_rtpr {
     /** real refcount management structure */
@@ -386,8 +382,8 @@ static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
  * @param uref uref structure
  * @param upump_p reference to pump that generated the buffer
  */
-static bool upipe_rtpr_sub_output(struct upipe *upipe, struct uref *uref,
-                                  struct upump **upump_p)
+static void upipe_rtpr_sub_input(struct upipe *upipe, struct uref *uref,
+                                 struct upump **upump_p)
 {
     struct upipe_rtpr *upipe_rtpr = upipe_rtpr_from_sub_mgr(upipe->mgr);
     uint64_t date_sys;
@@ -398,20 +394,6 @@ static bool upipe_rtpr_sub_output(struct upipe *upipe, struct uref *uref,
     uref_clock_set_date_sys(uref, date_sys, type);
 
     upipe_rtpr_list_add(&upipe_rtpr->upipe, uref, upipe);
-
-    return true;
-}
-
-/** @internal @This handles output data.
- *
- * @param upipe description structure of the pipe
- * @param uref uref structure
- * @param upump_p reference to upump structure
- */
-static void upipe_rtpr_sub_input(struct upipe *upipe, struct uref *uref,
-                                 struct upump **upump_p)
-{
-     upipe_rtpr_sub_output(upipe, uref, upump_p);
 }
 
 /** @This frees a upipe.
