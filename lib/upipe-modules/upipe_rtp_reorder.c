@@ -115,6 +115,8 @@ struct upipe_rtpr_sub {
     /** maximum observed delay */
     uint64_t max_delay;
 
+    struct uchain queue;
+
     /** public upipe structure */
     struct upipe upipe;
 };
@@ -218,6 +220,9 @@ static struct upipe *upipe_rtpr_sub_alloc(struct upipe_mgr *mgr,
     }
 
     struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
+
+    ulist_init(&upipe_rtpr_sub->queue);
+
     upipe_rtpr_sub->flow_def = NULL;
     upipe_rtpr_sub->max_delay = UINT64_MAX;
     upipe_rtpr_sub_init_urefcount(upipe);
@@ -407,6 +412,15 @@ static void upipe_rtpr_sub_input(struct upipe *upipe, struct uref *uref,
 static void upipe_rtpr_sub_free(struct upipe *upipe)
 {
     upipe_throw_dead(upipe);
+
+    struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
+    struct uchain *uchain, *uchain_tmp;
+    ulist_delete_foreach(&upipe_rtpr_sub->queue, uchain, uchain_tmp) {
+        struct uref *uref = uref_from_uchain(uchain);
+        ulist_delete(uchain);
+        uref_free(uref);
+    }
+
     upipe_rtpr_sub_clean_output(upipe);
     upipe_rtpr_sub_clean_sub(upipe);
     upipe_rtpr_sub_clean_urefcount(upipe);
