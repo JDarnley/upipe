@@ -164,6 +164,23 @@ static void upipe_rtpr_timer(struct upump *upump)
             break;
         }
     }
+
+    struct upipe *subpipe = NULL;
+    while (ubase_check(upipe_rtpr_iterate_input(upipe, &subpipe)) && subpipe) {
+        struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(subpipe);
+        ulist_delete_foreach(&upipe_rtpr_sub->queue, uchain, uchain_tmp) {
+            uref = uref_from_uchain(uchain);
+            uref_clock_get_date_sys(uref, &date_sys, &type);
+            if (now >= date_sys || date_sys == UINT64_MAX) {
+                ulist_delete(uchain);
+                upipe_rtpr_sub_output(subpipe, uref, NULL);
+            }
+            else {
+                break;
+            }
+        }
+
+    }
 }
 
 static int upipe_rtpr_check(struct upipe *upipe, struct uref *flow_format)
