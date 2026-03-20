@@ -274,55 +274,20 @@ static void upipe_rtpr_sub_set_max_delay(struct upipe *upipe, uint64_t delay)
         upipe_rtpr_sub->max_delay = delay;
 }
 
-static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
-                                struct upipe *upipe)
+static void handle_input_queue(struct uchain *queue, struct uref *uref,
+        uint64_t new_seqnum, struct upipe *upipe)
 {
-    struct upipe_rtpr *rtpr = upipe_rtpr_from_upipe(super);
     int dup = 0, ooo = 0;
     struct uchain *uchain, *uchain_tmp;
 
-    uint8_t rtp_buffer[RTP_HEADER_SIZE];
-    const uint8_t *rtp_header = uref_block_peek(uref, 0, RTP_HEADER_SIZE,
-                                                rtp_buffer);
-
-    if (unlikely(rtp_header == NULL)) {
-        upipe_warn(upipe, "invalid buffer received");
-        uref_free(uref);
-        return;
-    }
-    bool is_rtp = rtp_check_hdr(rtp_header);
-    uint16_t new_seqnum = likely(is_rtp) ? rtp_get_seqnum(rtp_header) : 0;
-    uref_block_peek_unmap(uref, 0, rtp_buffer, rtp_header);
-    if (unlikely(!is_rtp)) {
-        uref_free(uref);
-        return;
-    }
-    uref_attr_set_priv(uref, new_seqnum);
-
-    /* Drop late packets */
-    if (rtpr->last_sent_seqnum != UINT64_MAX &&
-        (seq_num_lt(new_seqnum, rtpr->last_sent_seqnum) ||
-         new_seqnum == rtpr->last_sent_seqnum)) {
-        uref_free(uref);
-        rtpr->num_consecutive_late++;
-
-        /* Assume new stream if too many consecutive late packets */
-        if (rtpr->num_consecutive_late > 200)
-            rtpr->last_sent_seqnum = UINT64_MAX;
-
-        return;
-    }
-
-    rtpr->num_consecutive_late = 0;
-
     /* Remove date_sys for any late packets */
-    ulist_delete_foreach_reverse(&rtpr->queue, uchain, uchain_tmp) {
+    ulist_delete_foreach_reverse(queue, uchain, uchain_tmp) {
         struct uref *cur_uref = uref_from_uchain(uchain);
         uint64_t seqnum = 0;
         uref_attr_get_priv(cur_uref, &seqnum);
 
         if (seq_num_lt(new_seqnum, seqnum)) {
-            if (ulist_is_first(&rtpr->queue, uchain)) {
+            if (ulist_is_first(queue, uchain)) {
                 uref_clock_delete_date_sys(uref);
                 ulist_insert(uchain->prev, uchain, uref_to_uchain(uref));
                 ooo = 1;
@@ -362,9 +327,51 @@ static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
 
     /* Add to end if normal packet */
     if (!dup && !ooo) {
-        ulist_add(&rtpr->queue, uref_to_uchain(uref));
+        ulist_add(queue, uref_to_uchain(uref));
         upipe_rtpr_sub_set_max_delay(upipe, 0);
     }
+}
+
+static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
+                                struct upipe *upipe)
+{
+    struct upipe_rtpr *rtpr = upipe_rtpr_from_upipe(super);
+
+    uint8_t rtp_buffer[RTP_HEADER_SIZE];
+    const uint8_t *rtp_header = uref_block_peek(uref, 0, RTP_HEADER_SIZE,
+                                                rtp_buffer);
+
+    if (unlikely(rtp_header == NULL)) {
+        upipe_warn(upipe, "invalid buffer received");
+        uref_free(uref);
+        return;
+    }
+    bool is_rtp = rtp_check_hdr(rtp_header);
+    uint16_t new_seqnum = likely(is_rtp) ? rtp_get_seqnum(rtp_header) : 0;
+    uref_block_peek_unmap(uref, 0, rtp_buffer, rtp_header);
+    if (unlikely(!is_rtp)) {
+        uref_free(uref);
+        return;
+    }
+    uref_attr_set_priv(uref, new_seqnum);
+
+    /* Drop late packets */
+    if (rtpr->last_sent_seqnum != UINT64_MAX &&
+        (seq_num_lt(new_seqnum, rtpr->last_sent_seqnum) ||
+         new_seqnum == rtpr->last_sent_seqnum)) {
+        uref_free(uref);
+        rtpr->num_consecutive_late++;
+
+        /* Assume new stream if too many consecutive late packets */
+        if (rtpr->num_consecutive_late > 200)
+            rtpr->last_sent_seqnum = UINT64_MAX;
+
+        return;
+    }
+
+    rtpr->num_consecutive_late = 0;
+
+    handle_input_queue(&rtpr->queue, uref, new_seqnum, upipe);
 }
 
 /** @internal @This receives data.
