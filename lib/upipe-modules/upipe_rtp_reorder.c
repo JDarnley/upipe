@@ -313,14 +313,16 @@ static void handle_input_queue(struct uchain *queue, struct uref *uref,
         }
         /* Duplicate packet */
         else if (new_seqnum == seqnum) {
-            int type;
-            uint64_t date;
-            uref_clock_get_date_sys(cur_uref, &date, &type);
-            if (date != UINT64_MAX) {
-                uint64_t new_date;
-                uref_clock_get_date_sys(uref, &new_date, &type);
-                if (new_date >= date)
-                    upipe_rtpr_sub_set_max_delay(upipe, new_date - date);
+            if (upipe) {
+                int type;
+                uint64_t date;
+                uref_clock_get_date_sys(cur_uref, &date, &type);
+                if (date != UINT64_MAX) {
+                    uint64_t new_date;
+                    uref_clock_get_date_sys(uref, &new_date, &type);
+                    if (new_date >= date)
+                        upipe_rtpr_sub_set_max_delay(upipe, new_date - date);
+                }
             }
             dup = 1;
             uref_free(uref);
@@ -333,7 +335,8 @@ static void handle_input_queue(struct uchain *queue, struct uref *uref,
     /* Add to end if normal packet */
     if (!dup && !ooo) {
         ulist_add(queue, uref_to_uchain(uref));
-        upipe_rtpr_sub_set_max_delay(upipe, 0);
+        if (upipe)
+            upipe_rtpr_sub_set_max_delay(upipe, 0);
     }
 }
 
@@ -341,6 +344,7 @@ static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
                                 struct upipe *upipe)
 {
     struct upipe_rtpr *rtpr = upipe_rtpr_from_upipe(super);
+    struct upipe_rtpr_sub *upipe_rtpr_sub = upipe_rtpr_sub_from_upipe(upipe);
 
     uint8_t rtp_buffer[RTP_HEADER_SIZE];
     const uint8_t *rtp_header = uref_block_peek(uref, 0, RTP_HEADER_SIZE,
@@ -376,7 +380,15 @@ static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
 
     rtpr->num_consecutive_late = 0;
 
-    handle_input_queue(&rtpr->queue, uref, new_seqnum, upipe);
+    /* Duplicate uref to go in subpipe queue */
+    struct uref *dup = uref_dup(uref);
+    if (likely(dup))
+        handle_input_queue(&upipe_rtpr_sub->queue, dup, new_seqnum, upipe);
+    else
+        upipe_throw_error(upipe, UBASE_ERR_ALLOC);
+
+    /* Queue original uref */
+    handle_input_queue(&rtpr->queue, uref, new_seqnum, NULL);
 }
 
 /** @internal @This receives data.
@@ -395,12 +407,6 @@ static void upipe_rtpr_sub_input(struct upipe *upipe, struct uref *uref,
     uref_clock_get_date_sys(uref, &date_sys, &type);
     date_sys += upipe_rtpr->delay;
     uref_clock_set_date_sys(uref, date_sys, type);
-
-    struct uref *dup = uref_dup(uref);
-    if (likely(dup))
-        upipe_rtpr_sub_output(upipe, dup, upump_p);
-    else
-        upipe_throw_error(upipe, UBASE_ERR_ALLOC);
 
     upipe_rtpr_list_add(&upipe_rtpr->upipe, uref, upipe);
 }
