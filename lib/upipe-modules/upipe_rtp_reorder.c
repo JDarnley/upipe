@@ -400,12 +400,12 @@ static void upipe_rtpr_list_add(struct upipe *super, struct uref *uref,
     /* Duplicate uref to go in subpipe queue */
     struct uref *dup = uref_dup(uref);
     if (likely(dup))
-        handle_input_queue(&upipe_rtpr_sub->queue, dup, new_seqnum, upipe);
+        handle_input_queue(&upipe_rtpr_sub->queue, dup, new_seqnum, NULL);
     else
         upipe_throw_error(upipe, UBASE_ERR_ALLOC);
 
     /* Queue original uref */
-    handle_input_queue(&rtpr->queue, uref, new_seqnum, NULL);
+    handle_input_queue(&rtpr->queue, uref, new_seqnum, upipe);
 }
 
 /** @internal @This receives data.
