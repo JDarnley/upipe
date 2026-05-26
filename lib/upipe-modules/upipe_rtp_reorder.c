@@ -337,7 +337,7 @@ static void handle_input_queue(struct uchain *queue, struct uref *uref,
                 if (date != UINT64_MAX) {
                     uint64_t new_date;
                     uref_clock_get_date_sys(uref, &new_date, &type);
-                    if (new_date >= date)
+                    if (new_date != UINT64_MAX && new_date >= date)
                         upipe_rtpr_sub_set_max_delay(upipe, new_date - date);
                 }
             }
