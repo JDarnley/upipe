@@ -128,7 +128,8 @@ static struct upipe *upipe_uref_mux_sub_alloc(struct upipe_mgr *mgr,
 
 /** @internal @This receives data on an input subpipe. A single uref is held
  * until the main pipe consumes it; if another arrives first, it is dropped
- * with a warning (an input uref is never repeated nor duplicated).
+ * with a warning (an input uref is never repeated nor duplicated). Data
+ * received before a flow definition has been set is dropped.
  *
  * @param upipe description structure of the subpipe
  * @param uref uref structure
@@ -139,6 +140,11 @@ static void upipe_uref_mux_sub_input(struct upipe *upipe, struct uref *uref,
 {
     struct upipe_uref_mux_sub *sub = upipe_uref_mux_sub_from_upipe(upipe);
 
+    if (unlikely(sub->flow_def == NULL)) {
+        upipe_warn(upipe, "dropping input uref received before flow def");
+        uref_free(uref);
+        return;
+    }
     if (unlikely(sub->uref != NULL)) {
         upipe_warn(upipe, "dropping input uref, previous one not consumed yet");
         uref_free(uref);
@@ -407,11 +413,6 @@ static void upipe_uref_mux_input(struct upipe *upipe, struct uref *uref,
         sub->uref = NULL;
         if (sub_uref == NULL)
             continue;
-        if (unlikely(sub->flow_def == NULL)) {
-            upipe_warn(upipe, "dropping input uref without flow def");
-            uref_free(sub_uref);
-            continue;
-        }
 
         uint8_t index;
         if (unlikely(!ubase_check(uref_sub_merge(uref, sub_uref, &index)))) {
@@ -469,14 +470,10 @@ static void upipe_uref_mux_free(struct upipe *upipe)
 
 /** module manager static descriptor */
 static struct upipe_mgr upipe_uref_mux_mgr = {
-    .refcount = NULL,
     .signature = UPIPE_UREF_MUX_SIGNATURE,
-
     .upipe_alloc = upipe_uref_mux_alloc,
     .upipe_input = upipe_uref_mux_input,
     .upipe_control = upipe_uref_mux_control,
-
-    .upipe_mgr_control = NULL
 };
 
 /** @This returns the management structure for uref_mux pipes.
