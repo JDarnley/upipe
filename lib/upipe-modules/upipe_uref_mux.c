@@ -22,6 +22,7 @@
 #include "upipe/uref_flow.h"
 #include "upipe/uref_sub.h"
 #include "upipe/upipe.h"
+#include "upipe-ts/uref_ts_flow.h"
 #include "upipe/upipe_helper_upipe.h"
 #include "upipe/upipe_helper_urefcount.h"
 #include "upipe/upipe_helper_void.h"
@@ -53,9 +54,16 @@ struct upipe_uref_mux {
     /** manager to create input subpipes */
     struct upipe_mgr sub_mgr;
 
+    /** input flow definition of the main pipe (the reference stream carried
+     * as entry 0 of the output urefs) */
+    struct uref *input_flow_def;
+
     /** public upipe structure */
     struct upipe upipe;
 };
+
+/** @hidden */
+static int upipe_uref_mux_build_flow_def(struct upipe *upipe);
 
 UPIPE_HELPER_UPIPE(upipe_uref_mux, upipe, UPIPE_UREF_MUX_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_uref_mux, urefcount, upipe_uref_mux_free)
@@ -149,7 +157,12 @@ static int upipe_uref_mux_sub_set_flow_def(struct upipe *upipe,
         return UBASE_ERR_ALLOC;
     uref_free(sub->flow_def);
     sub->flow_def = dup;
-    return UBASE_ERR_NONE;
+
+    /* the set of constituent flows changed, refresh the output flow def */
+    struct upipe_uref_mux *upipe_uref_mux =
+        upipe_uref_mux_from_sub_mgr(upipe->mgr);
+    return upipe_uref_mux_build_flow_def(
+            upipe_uref_mux_to_upipe(upipe_uref_mux));
 }
 
 /** @internal @This processes control commands on an input subpipe.
@@ -196,11 +209,19 @@ static int upipe_uref_mux_sub_control(struct upipe *upipe,
 static void upipe_uref_mux_sub_free(struct upipe *upipe)
 {
     struct upipe_uref_mux_sub *sub = upipe_uref_mux_sub_from_upipe(upipe);
+    struct upipe_uref_mux *upipe_uref_mux =
+        upipe_uref_mux_from_sub_mgr(upipe->mgr);
+    bool contributed = sub->flow_def != NULL;
     upipe_throw_dead(upipe);
     uref_free(sub->flow_def);
     upipe_uref_mux_sub_clean_sub(upipe);
     upipe_uref_mux_sub_clean_urefcount(upipe);
     upipe_uref_mux_sub_free_void(upipe);
+
+    /* removing a configured input changes the set of constituent flows */
+    if (contributed)
+        upipe_uref_mux_build_flow_def(
+                upipe_uref_mux_to_upipe(upipe_uref_mux));
 }
 
 /** @internal @This initializes the input subpipe manager of a uref_mux pipe.
@@ -239,13 +260,94 @@ static struct upipe *upipe_uref_mux_alloc(struct upipe_mgr *mgr,
     if (unlikely(upipe == NULL))
         return NULL;
 
+    struct upipe_uref_mux *upipe_uref_mux = upipe_uref_mux_from_upipe(upipe);
     upipe_uref_mux_init_urefcount(upipe);
     upipe_uref_mux_init_output(upipe);
     upipe_uref_mux_init_sub_subs(upipe);
     upipe_uref_mux_init_sub_mgr(upipe);
+    upipe_uref_mux->input_flow_def = NULL;
 
     upipe_throw_ready(upipe);
     return upipe;
+}
+
+/** @internal @This (re)builds the aggregated output flow definition from the
+ * main pipe input flow def (entry 0, the reference stream) and the flow def
+ * of each configured input subpipe (entries 1 and above). Each constituent
+ * flow is described in the output flow def under the per-entry "sub[i]."
+ * namespace: its TS PID as the entry flow ID and its flow definition string.
+ * This is called whenever the set of constituent flows changes.
+ *
+ * @param upipe description structure of the pipe
+ * @return an error code
+ */
+static int upipe_uref_mux_build_flow_def(struct upipe *upipe)
+{
+    struct upipe_uref_mux *upipe_uref_mux = upipe_uref_mux_from_upipe(upipe);
+    if (upipe_uref_mux->input_flow_def == NULL)
+        /* nothing to base the output flow def on yet */
+        return UBASE_ERR_NONE;
+
+    struct uref *flow_def = uref_dup(upipe_uref_mux->input_flow_def);
+    if (unlikely(flow_def == NULL)) {
+        upipe_throw_error(upipe, UBASE_ERR_ALLOC);
+        return UBASE_ERR_ALLOC;
+    }
+
+    /* entry 0: the reference stream carried by the main pipe input */
+    uint64_t pid;
+    if (ubase_check(uref_ts_flow_get_pid(upipe_uref_mux->input_flow_def,
+                                         &pid)))
+        uref_sub_set_flow_id(flow_def, pid, 0);
+
+    /* entries 1 and above: one per configured input subpipe, identified by
+     * TS PID */
+    uint8_t index = 0;
+    struct uchain *uchain;
+    ulist_foreach(&upipe_uref_mux->subs, uchain) {
+        struct upipe_uref_mux_sub *sub =
+            upipe_uref_mux_sub_from_uchain(uchain);
+        if (sub->flow_def == NULL)
+            continue;
+        index++;
+
+        uint64_t sub_pid;
+        if (likely(ubase_check(uref_ts_flow_get_pid(sub->flow_def,
+                                                    &sub_pid))))
+            uref_sub_set_flow_id(flow_def, sub_pid, index);
+        else
+            upipe_warn(upipe, "input subpipe flow def has no TS PID");
+
+        const char *def;
+        if (ubase_check(uref_flow_get_def(sub->flow_def, &def)))
+            uref_sub_set_def(flow_def, def, index);
+    }
+
+    upipe_uref_mux_store_flow_def(upipe, flow_def);
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the input flow definition of the main pipe, i.e.
+ * the reference stream that drives the output and is carried as entry 0.
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_def new input flow definition
+ * @return an error code
+ */
+static int upipe_uref_mux_set_flow_def(struct upipe *upipe,
+                                       struct uref *flow_def)
+{
+    struct upipe_uref_mux *upipe_uref_mux = upipe_uref_mux_from_upipe(upipe);
+    if (flow_def == NULL)
+        return UBASE_ERR_INVALID;
+
+    struct uref *dup = uref_dup(flow_def);
+    if (unlikely(dup == NULL))
+        return UBASE_ERR_ALLOC;
+    uref_free(upipe_uref_mux->input_flow_def);
+    upipe_uref_mux->input_flow_def = dup;
+
+    return upipe_uref_mux_build_flow_def(upipe);
 }
 
 /** @internal @This processes control commands on a uref_mux pipe.
@@ -262,6 +364,10 @@ static int upipe_uref_mux_control(struct upipe *upipe,
     UBASE_HANDLED_RETURN(upipe_uref_mux_control_subs(upipe, command, args));
 
     switch (command) {
+        case UPIPE_SET_FLOW_DEF: {
+            struct uref *flow_def = va_arg(args, struct uref *);
+            return upipe_uref_mux_set_flow_def(upipe, flow_def);
+        }
         default:
             return UBASE_ERR_UNHANDLED;
     }
@@ -273,8 +379,10 @@ static int upipe_uref_mux_control(struct upipe *upipe,
  */
 static void upipe_uref_mux_free(struct upipe *upipe)
 {
+    struct upipe_uref_mux *upipe_uref_mux = upipe_uref_mux_from_upipe(upipe);
     upipe_throw_dead(upipe);
 
+    uref_free(upipe_uref_mux->input_flow_def);
     upipe_uref_mux_clean_sub_subs(upipe);
     upipe_uref_mux_clean_output(upipe);
     upipe_uref_mux_clean_urefcount(upipe);
