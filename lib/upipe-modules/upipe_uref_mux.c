@@ -335,8 +335,8 @@ static int upipe_uref_mux_build_flow_def(struct upipe *upipe)
         index++;
 
         uint64_t sub_pid;
-        uref_ts_flow_get_pid(sub->flow_def, &sub_pid);
-        uref_sub_set_flow_id(flow_def, sub_pid, index);
+        if (ubase_check(uref_ts_flow_get_pid(sub->flow_def, &sub_pid)))
+            uref_sub_set_flow_id(flow_def, sub_pid, index);
 
         const char *def;
         if (ubase_check(uref_flow_get_def(sub->flow_def, &def)))
@@ -422,8 +422,8 @@ static void upipe_uref_mux_input(struct upipe *upipe, struct uref *uref,
         }
 
         uint64_t sub_pid;
-        uref_ts_flow_get_pid(sub->flow_def, &sub_pid);
-        uref_sub_set_flow_id(uref, sub_pid, index);
+        if (ubase_check(uref_ts_flow_get_pid(sub->flow_def, &sub_pid)))
+            uref_sub_set_flow_id(uref, sub_pid, index);
     }
 
     upipe_uref_mux_output(upipe, uref, upump_p);
