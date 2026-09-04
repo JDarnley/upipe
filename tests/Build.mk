@@ -513,6 +513,10 @@ tests += upipe_unpack10_test
 upipe_unpack10_test-src = upipe_unpack10_test.c
 upipe_unpack10_test-libs = libupipe libupipe_hbrmt
 
+tests += upipe_uref_mux_test
+upipe_uref_mux_test-src = upipe_uref_mux_test.c
+upipe_uref_mux_test-libs = libupipe libupipe_modules
+
 tests += upipe_v210dec_test
 upipe_v210dec_test-src = upipe_v210dec_test.c
 upipe_v210dec_test-libs = libupipe libupipe_v210 libavutil
