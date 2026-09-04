@@ -80,6 +80,8 @@ struct upipe_uref_mux_sub {
 
     /** input flow definition packet */
     struct uref *flow_def;
+    /** single input uref held until the main pipe consumes it */
+    struct uref *uref;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -118,12 +120,15 @@ static struct upipe *upipe_uref_mux_sub_alloc(struct upipe_mgr *mgr,
     upipe_uref_mux_sub_init_urefcount(upipe);
     upipe_uref_mux_sub_init_sub(upipe);
     sub->flow_def = NULL;
+    sub->uref = NULL;
 
     upipe_throw_ready(upipe);
     return upipe;
 }
 
-/** @internal @This receives data on an input subpipe.
+/** @internal @This receives data on an input subpipe. A single uref is held
+ * until the main pipe consumes it; if another arrives first, it is dropped
+ * with a warning (an input uref is never repeated nor duplicated).
  *
  * @param upipe description structure of the subpipe
  * @param uref uref structure
@@ -132,14 +137,19 @@ static struct upipe *upipe_uref_mux_sub_alloc(struct upipe_mgr *mgr,
 static void upipe_uref_mux_sub_input(struct upipe *upipe, struct uref *uref,
                                      struct upump **upump_p)
 {
-    /* TODO: merge this uref into a carrier uref (uref_sub_merge) and, once
-     * all inputs have contributed, output the carrier on the main pipe. For
-     * now the skeleton simply drops the input. */
-    upipe_verbose(upipe, "dropping input uref (mux not implemented yet)");
-    uref_free(uref);
+    struct upipe_uref_mux_sub *sub = upipe_uref_mux_sub_from_upipe(upipe);
+
+    if (unlikely(sub->uref != NULL)) {
+        upipe_warn(upipe, "dropping input uref, previous one not consumed yet");
+        uref_free(uref);
+        return;
+    }
+    sub->uref = uref;
 }
 
-/** @internal @This sets the input flow definition of a subpipe.
+/** @internal @This sets the input flow definition of a subpipe. The flow
+ * definition must carry a TS PID, which is used as the key identifying this
+ * input in the multiplexed output; a flow def without a PID is rejected.
  *
  * @param upipe description structure of the subpipe
  * @param flow_def new input flow definition
@@ -151,6 +161,12 @@ static int upipe_uref_mux_sub_set_flow_def(struct upipe *upipe,
     struct upipe_uref_mux_sub *sub = upipe_uref_mux_sub_from_upipe(upipe);
     if (flow_def == NULL)
         return UBASE_ERR_INVALID;
+
+    uint64_t pid;
+    if (unlikely(!ubase_check(uref_ts_flow_get_pid(flow_def, &pid)))) {
+        upipe_warn(upipe, "input flow def has no TS PID");
+        return UBASE_ERR_INVALID;
+    }
 
     struct uref *dup = uref_dup(flow_def);
     if (unlikely(dup == NULL))
@@ -213,6 +229,7 @@ static void upipe_uref_mux_sub_free(struct upipe *upipe)
         upipe_uref_mux_from_sub_mgr(upipe->mgr);
     bool contributed = sub->flow_def != NULL;
     upipe_throw_dead(upipe);
+    uref_free(sub->uref);
     uref_free(sub->flow_def);
     upipe_uref_mux_sub_clean_sub(upipe);
     upipe_uref_mux_sub_clean_urefcount(upipe);
@@ -312,11 +329,8 @@ static int upipe_uref_mux_build_flow_def(struct upipe *upipe)
         index++;
 
         uint64_t sub_pid;
-        if (likely(ubase_check(uref_ts_flow_get_pid(sub->flow_def,
-                                                    &sub_pid))))
-            uref_sub_set_flow_id(flow_def, sub_pid, index);
-        else
-            upipe_warn(upipe, "input subpipe flow def has no TS PID");
+        uref_ts_flow_get_pid(sub->flow_def, &sub_pid);
+        uref_sub_set_flow_id(flow_def, sub_pid, index);
 
         const char *def;
         if (ubase_check(uref_flow_get_def(sub->flow_def, &def)))
@@ -341,6 +355,12 @@ static int upipe_uref_mux_set_flow_def(struct upipe *upipe,
     if (flow_def == NULL)
         return UBASE_ERR_INVALID;
 
+    uint64_t pid;
+    if (unlikely(!ubase_check(uref_ts_flow_get_pid(flow_def, &pid)))) {
+        upipe_warn(upipe, "input flow def has no TS PID");
+        return UBASE_ERR_INVALID;
+    }
+
     struct uref *dup = uref_dup(flow_def);
     if (unlikely(dup == NULL))
         return UBASE_ERR_ALLOC;
@@ -348,6 +368,64 @@ static int upipe_uref_mux_set_flow_def(struct upipe *upipe,
     upipe_uref_mux->input_flow_def = dup;
 
     return upipe_uref_mux_build_flow_def(upipe);
+}
+
+/** @internal @This receives a reference uref on the main pipe input. It
+ * merges the uref currently held by each input subpipe into it (consuming
+ * that uref and releasing the slot) and outputs the resulting multiplexed
+ * uref. The reference stream is carried as entry 0; each merged input becomes
+ * an additional entry tagged with its TS PID. No uref is ever repeated: a
+ * subpipe with nothing held simply contributes no entry to this output.
+ *
+ * @param upipe description structure of the pipe
+ * @param uref reference uref, used as the multiplex carrier
+ * @param upump_p reference to pump that generated the buffer
+ */
+static void upipe_uref_mux_input(struct upipe *upipe, struct uref *uref,
+                                 struct upump **upump_p)
+{
+    struct upipe_uref_mux *upipe_uref_mux = upipe_uref_mux_from_upipe(upipe);
+
+    if (unlikely(upipe_uref_mux->input_flow_def == NULL)) {
+        upipe_warn(upipe, "dropping uref received before flow def");
+        uref_free(uref);
+        return;
+    }
+
+    /* tag entry 0 (the reference stream) with its PID for uniform lookup */
+    uint64_t pid;
+    if (ubase_check(uref_ts_flow_get_pid(upipe_uref_mux->input_flow_def,
+                                         &pid)))
+        uref_sub_set_flow_id(uref, pid, 0);
+
+    /* merge the uref held by each input subpipe, then release the slot */
+    struct uchain *uchain;
+    ulist_foreach(&upipe_uref_mux->subs, uchain) {
+        struct upipe_uref_mux_sub *sub =
+            upipe_uref_mux_sub_from_uchain(uchain);
+        struct uref *sub_uref = sub->uref;
+        sub->uref = NULL;
+        if (sub_uref == NULL)
+            continue;
+        if (unlikely(sub->flow_def == NULL)) {
+            upipe_warn(upipe, "dropping input uref without flow def");
+            uref_free(sub_uref);
+            continue;
+        }
+
+        uint8_t index;
+        if (unlikely(!ubase_check(uref_sub_merge(uref, sub_uref, &index)))) {
+            upipe_warn(upipe, "unable to merge input uref");
+            uref_free(sub_uref);
+            continue;
+        }
+
+        uint64_t sub_pid;
+        uref_ts_flow_get_pid(sub->flow_def, &sub_pid);
+        uref_sub_set_flow_id(uref, sub_pid, index);
+    }
+
+    upipe_uref_mux_output(upipe, uref, upump_p);
 }
 
 /** @internal @This processes control commands on a uref_mux pipe.
@@ -395,7 +473,7 @@ static struct upipe_mgr upipe_uref_mux_mgr = {
     .signature = UPIPE_UREF_MUX_SIGNATURE,
 
     .upipe_alloc = upipe_uref_mux_alloc,
-    .upipe_input = NULL,
+    .upipe_input = upipe_uref_mux_input,
     .upipe_control = upipe_uref_mux_control,
 
     .upipe_mgr_control = NULL
