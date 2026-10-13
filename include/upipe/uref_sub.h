@@ -17,8 +17,11 @@
  * entries 1 and above, chained to the uref by their own uchain (which is
  * unused while a ubuf is in flight). Per-entry metadata is stored in the
  * uref attributes under indexed names ("sub[i].*"), so it is transparently
- * carried and duplicated by udict handling. All entries share the dates and
- * duration of the uref by definition, since they are part of the same uref.
+ * carried and duplicated by udict handling. This includes the flags, dates
+ * and delays of each entry, which are fields of the uref structure rather
+ * than attributes: @ref uref_sub_merge keeps them as "sub[i].uref.*"
+ * attributes, from which @ref uref_sub_extract restores them. An entry
+ * without them gets those of the carrier.
  *
  * @ref uref_free frees all entries, and @ref uref_dup and @ref uref_fork
  * duplicate the whole chain (ubuf_dup is a cheap reference increment), so
@@ -31,6 +34,21 @@
  * urefs at another (@ref uref_sub_extract); both round-trip all attributes
  * generically between plain names and the per-entry namespace, so pipes in
  * between never need per-entry attribute access.
+ *
+ * A uref without any ubuf, such as a flow definition, may also carry
+ * entries: they then only consist of their per-entry attributes, so that for
+ * instance the flow definitions of the constituent flows can be aggregated
+ * into the flow definition of the carrier, with the same functions. Since an
+ * additional ubuf's entry index is given by its position in the chain,
+ * entries without ubufs can't be mixed with entries with ubufs: they only
+ * exist in urefs without any ubuf.
+ *
+ * The index of an entry only means something within its uref: from one uref
+ * to the next, a flow may have its entry at another index, or several
+ * entries. Entries are therefore usually identified by a flow ID
+ * ("sub[i].f.id", see @ref uref_sub_set_flow_id and
+ * @ref uref_sub_find_flow_id). A uref holds at most
+ * @ref UREF_SUB_MAX_ENTRIES entries.
  */
 
 #ifndef _UPIPE_UREF_SUB_H_
@@ -52,14 +70,80 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 
+/** @This is the maximum number of entries of a uref, including entry 0,
+ * since entry indices are stored in a uint8_t: a uref carries at most
+ * UREF_SUB_MAX_ENTRIES - 1 additional entries. */
+#define UREF_SUB_MAX_ENTRIES UINT8_MAX
+
 /** @internal @This is the maximum length of a per-entry attribute name
  * prefix, including the trailing zero. */
 #define UREF_SUB_PREFIX_SIZE 16
 
-UREF_ATTR_UNSIGNED_VA(sub, flow_id, "sub[%" PRIu8"].f.id", sub ubuf flow ID,
+/** @internal @This is the maximum length of the name of an attribute keeping
+ * a uref field, after the per-entry prefix, including the trailing zero. */
+#define UREF_SUB_FIELD_SIZE 24
+
+/** @internal @This returns a uref field kept for each entry (flags, dates and
+ * delays), by rank, along with the name of the attribute keeping it.
+ *
+ * @param uref pointer to uref structure
+ * @param rank rank of the field, from 0
+ * @param name_p filled in with the name of the attribute, after the per-entry
+ * prefix
+ * @return pointer to the field, or NULL after the last one
+ */
+static inline uint64_t *uref_sub_field(struct uref *uref, unsigned rank,
+                                       const char **name_p)
+{
+    switch (rank) {
+        case 0:
+            *name_p = "uref.flags";
+            return &uref->flags;
+        case 1:
+            *name_p = "uref.date_sys";
+            return &uref->date_sys;
+        case 2:
+            *name_p = "uref.date_prog";
+            return &uref->date_prog;
+        case 3:
+            *name_p = "uref.date_orig";
+            return &uref->date_orig;
+        case 4:
+            *name_p = "uref.dts_pts_delay";
+            return &uref->dts_pts_delay;
+        case 5:
+            *name_p = "uref.cr_dts_delay";
+            return &uref->cr_dts_delay;
+        case 6:
+            *name_p = "uref.rap_cr_delay";
+            return &uref->rap_cr_delay;
+        default:
+            return NULL;
+    }
+}
+
+/** @internal @This returns the uref field kept by an attribute.
+ *
+ * @param uref pointer to uref structure
+ * @param name name of the attribute, after the per-entry prefix
+ * @return pointer to the field, or NULL if the attribute doesn't keep one
+ */
+static inline uint64_t *uref_sub_field_by_name(struct uref *uref,
+                                               const char *name)
+{
+    const char *field_name;
+    uint64_t *field;
+    for (unsigned rank = 0;
+         (field = uref_sub_field(uref, rank, &field_name)) != NULL; rank++)
+        if (!strcmp(name, field_name))
+            return field;
+    return NULL;
+}
+
+UREF_ATTR_UNSIGNED_VA(sub, flow_id, "sub[%" PRIu8"].f.id", flow ID of an entry,
         uint8_t index, index)
 UREF_ATTR_STRING_VA(sub, def, "sub[%" PRIu8"].f.def",
-        sub ubuf flow definition, uint8_t index, index)
+        flow definition of an entry, uint8_t index, index)
 
 /** @This walks through the chain of additional ubufs of a uref (entries 1
  * and above). The list may not be altered during the walk.
@@ -70,18 +154,61 @@ UREF_ATTR_STRING_VA(sub, def, "sub[%" PRIu8"].f.def",
 #define uref_sub_foreach(uref, uchain)                                      \
     ulist_foreach(&(uref)->sub_ubufs, uchain)
 
-/** @This returns the number of ubuf entries of a uref, including the
- * primary ubuf.
+/** @internal @This parses the entry index of a per-entry attribute name.
+ *
+ * @param name attribute name (NULL for shorthands)
+ * @param index_p filled in with the entry index
+ * @return true if the name belongs to a per-entry namespace
+ */
+static inline bool uref_sub_name_index(const char *name, uint8_t *index_p)
+{
+    if (name == NULL || strncmp(name, "sub[", 4))
+        return false;
+    const char *p = name + 4;
+    if (*p < '0' || *p > '9')
+        return false;
+    unsigned int index = 0;
+    for ( ; *p >= '0' && *p <= '9'; p++) {
+        index = index * 10 + (*p - '0');
+        if (index > UINT8_MAX)
+            return false;
+    }
+    if (p[0] != ']' || p[1] != '.')
+        return false;
+    *index_p = index;
+    return true;
+}
+
+/** @This returns the number of entries of a uref, including entry 0. For a
+ * uref carrying ubufs, this is one more than the number of additional ubufs,
+ * entry 0 being the primary ubuf even if it is absent; this walks the chain.
+ * For a uref without any ubuf (such as a flow definition), entries only
+ * consist of attributes, so this is one more than the highest index found in
+ * per-entry attributes; this scans all the attributes.
  *
  * @param uref pointer to uref structure
- * @return number of entries (0 if there is no ubuf at all)
+ * @return number of entries (0 if there is no entry at all)
  */
 static inline uint8_t uref_sub_count(struct uref *uref)
 {
-    size_t depth = ulist_depth(&uref->sub_ubufs);
-    if (depth == 0 && uref->ubuf == NULL)
-        return 0;
-    return depth + 1;
+    if (uref->ubuf != NULL || !ulist_empty(&uref->sub_ubufs))
+        return ulist_depth(&uref->sub_ubufs) + 1;
+
+    uint8_t count = 0;
+    if (uref->udict != NULL) {
+        const char *name = NULL;
+        enum udict_type type = UDICT_TYPE_END;
+        for ( ; ; ) {
+            udict_iterate(uref->udict, &name, &type);
+            if (unlikely(type == UDICT_TYPE_END))
+                break;
+            uint8_t index;
+            if (uref_sub_name_index(name, &index) && index >= count &&
+                index < UREF_SUB_MAX_ENTRIES)
+                count = index + 1;
+        }
+    }
+    return count;
 }
 
 /** @This returns the ubuf at the given entry of a uref, without transferring
@@ -89,7 +216,7 @@ static inline uint8_t uref_sub_count(struct uref *uref)
  *
  * @param uref pointer to uref structure
  * @param index entry index
- * @return pointer to ubuf, or NULL if the entry does not exist
+ * @return pointer to ubuf, or NULL if the entry does not exist or has no ubuf
  */
 static inline struct ubuf *uref_sub_get(struct uref *uref, uint8_t index)
 {
@@ -102,7 +229,9 @@ static inline struct ubuf *uref_sub_get(struct uref *uref, uint8_t index)
 /** @This attaches an additional ubuf to a given uref, appended at the end of
  * the chain. The ubuf pointer may no longer be used by the module
  * afterwards. The primary ubuf is not modified (use @ref uref_attach_ubuf
- * for entry 0).
+ * for entry 0), and no per-entry attribute is set (see @ref uref_sub_merge
+ * to merge a whole uref). The uref must have fewer than
+ * @ref UREF_SUB_MAX_ENTRIES entries, and no entries without ubufs.
  *
  * @param uref pointer to uref structure
  * @param ubuf pointer to ubuf structure to attach to uref
@@ -275,13 +404,16 @@ static inline int uref_sub_rename_attrs(struct uref *uref, uint8_t from,
 /** @This detaches the ubuf at the given entry from a uref. The returned
  * ubuf must be freed or re-attached at some point, otherwise it will leak.
  * Entry 0 detaches the primary ubuf (see @ref uref_detach_ubuf) and leaves
- * attributes untouched. For other entries, the entry's attributes are
- * deleted and the attributes of the following entries are renumbered to
- * match their new indices (best effort in case of allocation failure).
+ * attributes untouched. For other entries, the entry's attributes, including
+ * its kept flags, dates and delays, are deleted and the attributes of the
+ * following entries are renumbered to match their new indices (best effort
+ * in case of allocation failure). An entry without ubuf, as in a flow
+ * definition, is left untouched: use @ref uref_sub_delete_attrs instead.
  *
  * @param uref pointer to uref structure
  * @param index entry index
- * @return pointer to detached ubuf, or NULL if the entry does not exist
+ * @return pointer to detached ubuf, or NULL if the entry does not exist or
+ * has no ubuf
  */
 static inline struct ubuf *uref_sub_detach_ubuf(struct uref *uref,
                                                 uint8_t index)
@@ -329,18 +461,18 @@ static inline int uref_sub_replace_ubuf(struct uref *uref, struct ubuf *ubuf,
     return UBASE_ERR_NONE;
 }
 
-/** @This finds the entry carrying the given flow ID (as set with @ref
- * uref_sub_set_flow_id, including on entry 0 for the primary ubuf) and
- * returns its ubuf without transferring ownership.
+/** @This finds the first entry carrying the given flow ID (as set with @ref
+ * uref_sub_set_flow_id, including on entry 0); a flow may have several
+ * entries in a uref. The ubuf of the entry, if it has one, may then be
+ * retrieved with @ref uref_sub_get.
  *
  * @param uref pointer to uref structure
  * @param flow_id flow ID to look for
  * @param index_p filled in with the entry index, may be NULL
- * @return pointer to ubuf, or NULL if no entry carries this flow ID
+ * @return an error code (UBASE_ERR_INVALID if no entry carries this flow ID)
  */
-static inline struct ubuf *uref_sub_find_flow_id(struct uref *uref,
-                                                 uint64_t flow_id,
-                                                 uint8_t *index_p)
+static inline int uref_sub_find_flow_id(struct uref *uref, uint64_t flow_id,
+                                        uint8_t *index_p)
 {
     uint8_t count = uref_sub_count(uref);
     for (uint8_t i = 0; i < count; i++) {
@@ -348,20 +480,22 @@ static inline struct ubuf *uref_sub_find_flow_id(struct uref *uref,
         if (ubase_check(uref_sub_get_flow_id(uref, &v, i)) && v == flow_id) {
             if (index_p != NULL)
                 *index_p = i;
-            return uref_sub_get(uref, i);
+            return UBASE_ERR_NONE;
         }
     }
-    return NULL;
+    return UBASE_ERR_INVALID;
 }
 
 /** @This extracts an entry of a uref as a standalone uref, without
  * modifying the source. The new uref references a duplicate of the entry's
- * ubuf, inherits the dates and flags of the source uref (which all entries
- * share by definition), and its plain attributes are the per-entry
- * attributes of the entry, renamed from the "sub[i]." namespace and
- * converted back to shorthands where applicable. For entry 0 the plain
- * attributes of the source are also copied. Per-entry attributes of other
- * entries are not carried.
+ * ubuf if it has one (entries of urefs without ubufs, such as flow
+ * definitions, only consist of attributes), gets the flags, dates and
+ * delays kept for the entry by @ref uref_sub_merge, or else those of the
+ * source uref, and its plain attributes are the per-entry attributes of the
+ * entry, renamed from the "sub[i]." namespace and converted back to
+ * shorthands where applicable.
+ * For entry 0 the plain attributes of the source are also copied. Per-entry
+ * attributes of other entries are not carried.
  *
  * @param uref pointer to uref structure
  * @param index entry index
@@ -370,12 +504,16 @@ static inline struct ubuf *uref_sub_find_flow_id(struct uref *uref,
  */
 static inline struct uref *uref_sub_extract(struct uref *uref, uint8_t index)
 {
-    if (index != 0 && ulist_at(&uref->sub_ubufs, index - 1) == NULL)
+    if (index != 0 && index >= uref_sub_count(uref))
         return NULL;
-    struct uref *new_uref = uref_sibling_alloc(uref);
+    struct ubuf *ubuf = uref_sub_get(uref, index);
+    /* an entry without ubuf (such as a flow definition) is a control uref */
+    struct uref *new_uref = ubuf != NULL ? uref_sibling_alloc(uref) :
+                                           uref_sibling_alloc_control(uref);
     if (unlikely(new_uref == NULL))
         return NULL;
 
+    /* the fields of the carrier, unless the entry kept its own (below) */
     new_uref->flags = uref->flags;
     new_uref->date_sys = uref->date_sys;
     new_uref->date_prog = uref->date_prog;
@@ -385,13 +523,16 @@ static inline struct uref *uref_sub_extract(struct uref *uref, uint8_t index)
     new_uref->rap_cr_delay = uref->rap_cr_delay;
     new_uref->priv = uref->priv;
 
-    struct ubuf *ubuf = uref_sub_get(uref, index);
     if (ubuf != NULL) {
         new_uref->ubuf = ubuf_dup(ubuf);
         if (unlikely(new_uref->ubuf == NULL))
             goto uref_sub_extract_err;
     }
 
+    /* walk the attributes of the carrier: those of the entry's namespace
+     * become plain attributes again, except the ones keeping its fields,
+     * which are restored into them; for entry 0 the plain attributes of the
+     * carrier are copied too; the other namespaces are skipped */
     if (uref->udict != NULL) {
         char prefix[UREF_SUB_PREFIX_SIZE];
         size_t prefix_len = uref_sub_prefix(prefix, index);
@@ -405,11 +546,18 @@ static inline struct uref *uref_sub_extract(struct uref *uref, uint8_t index)
             int err = UBASE_ERR_NONE;
             if (name != NULL && !strncmp(name, prefix, prefix_len)) {
                 const char *plain = name + prefix_len;
-                enum udict_type plain_type =
-                    uref_sub_shorthand(uref, plain, type);
-                err = uref_sub_attr_transfer(new_uref,
-                        plain_type > UDICT_TYPE_SHORTHAND ? NULL : plain,
-                        plain_type, uref, name, type);
+                uint64_t *field = type != UDICT_TYPE_UNSIGNED ? NULL :
+                    uref_sub_field_by_name(new_uref, plain);
+                if (field != NULL)
+                    /* a field kept for the entry, not an attribute */
+                    err = uref_attr_get_unsigned(uref, field, type, name);
+                else {
+                    enum udict_type plain_type =
+                        uref_sub_shorthand(uref, plain, type);
+                    err = uref_sub_attr_transfer(new_uref,
+                            plain_type > UDICT_TYPE_SHORTHAND ? NULL : plain,
+                            plain_type, uref, name, type);
+                }
             } else if (index == 0 &&
                        (name == NULL || strncmp(name, "sub[", 4)))
                 err = uref_sub_attr_transfer(new_uref, name, type,
@@ -426,13 +574,18 @@ uref_sub_extract_err:
 }
 
 /** @This merges a standalone uref into a carrier uref as a new entry. On
- * success the merged uref is entirely consumed: its ubuf becomes the new
- * entry, its plain attributes (including shorthands) are copied into the
- * "sub[i]." namespace of the carrier, and its dates are discarded since all
- * entries share the dates of the carrier by definition. The merged uref
- * must have a ubuf and must not itself carry additional ubufs; in that case
- * (and on allocation failure) an error is returned and the merged uref
- * remains owned by the caller.
+ * success the merged uref is entirely consumed: its ubuf, if any, becomes
+ * the new entry, its plain attributes (including shorthands) are copied into
+ * the "sub[i]." namespace of the carrier, and its flags, dates and delays
+ * are kept there too, for @ref uref_sub_extract to restore them.
+ *
+ * A merged uref without a ubuf (such as a flow definition) gives an entry
+ * made only of its attributes, so it must have some, and the carrier must
+ * not have any ubuf. Conversely, a merged uref with a ubuf can't follow
+ * entries without ubufs. The merged uref must not itself carry additional
+ * ubufs, and the carrier must have fewer than @ref UREF_SUB_MAX_ENTRIES
+ * entries. In all these cases (and on allocation failure) an error is
+ * returned and the merged uref remains owned by the caller.
  *
  * @param uref pointer to carrier uref structure
  * @param sub_uref uref to merge as a new entry
@@ -442,14 +595,40 @@ uref_sub_extract_err:
 static inline int uref_sub_merge(struct uref *uref, struct uref *sub_uref,
                                  uint8_t *index_p)
 {
-    if (unlikely(sub_uref->ubuf == NULL ||
-                 !ulist_empty(&sub_uref->sub_ubufs)))
+    if (unlikely(!ulist_empty(&sub_uref->sub_ubufs)))
         return UBASE_ERR_INVALID;
 
-    uint8_t index = ulist_depth(&uref->sub_ubufs) + 1;
+    /* TODO: ulist_depth() and uref_sub_count() walk the whole ubuf chain (or
+     * scan all the attributes of a uref without ubufs) on every merge, so
+     * merging n entries into a uref costs O(n^2); keeping the number of
+     * entries alongside the chain would avoid it */
+    size_t index;
+    if (sub_uref->ubuf != NULL) {
+        /* the ubuf is appended to the chain, and its position there gives
+         * its entry index, so there must be no entries without ubufs */
+        index = ulist_depth(&uref->sub_ubufs) + 1;
+        if (unlikely(uref_sub_count(uref) > index))
+            return UBASE_ERR_INVALID;
+    } else {
+        /* entries without ubufs only exist in urefs without any ubuf, and
+         * take the next free index of their namespaces */
+        if (unlikely(uref->ubuf != NULL || !ulist_empty(&uref->sub_ubufs)))
+            return UBASE_ERR_INVALID;
+        index = uref_sub_count(uref);
+        if (index == 0)
+            index = 1;
+    }
+    if (unlikely(index >= UREF_SUB_MAX_ENTRIES))
+        /* no room left for another entry */
+        return UBASE_ERR_INVALID;
+
     char prefix[UREF_SUB_PREFIX_SIZE];
     size_t prefix_len = uref_sub_prefix(prefix, index);
 
+    /* copy every plain attribute of the merged uref into the namespace of
+     * the entry, under its full name for shorthands; on failure, the
+     * attributes copied so far are deleted again */
+    bool merged = false;
     if (sub_uref->udict != NULL) {
         const char *name = NULL;
         enum udict_type type = UDICT_TYPE_END;
@@ -485,10 +664,32 @@ static inline int uref_sub_merge(struct uref *uref, struct uref *sub_uref,
                 uref_sub_delete_attrs(uref, index);
                 return err;
             }
+            merged = true;
         }
     }
 
-    uref_sub_attach_ubuf(uref, uref_detach_ubuf(sub_uref));
+    if (unlikely(sub_uref->ubuf == NULL && !merged))
+        /* an entry with neither ubuf nor attributes would not exist */
+        return UBASE_ERR_INVALID;
+
+    /* the entry keeps its own flags, dates and delays */
+    const char *field_name;
+    uint64_t *field;
+    for (unsigned rank = 0;
+         (field = uref_sub_field(sub_uref, rank, &field_name)) != NULL;
+         rank++) {
+        char name[UREF_SUB_PREFIX_SIZE + UREF_SUB_FIELD_SIZE];
+        snprintf(name, sizeof(name), "%s%s", prefix, field_name);
+        int err = uref_attr_set_unsigned(uref, *field, UDICT_TYPE_UNSIGNED,
+                                         name);
+        if (unlikely(!ubase_check(err))) {
+            uref_sub_delete_attrs(uref, index);
+            return err;
+        }
+    }
+
+    if (sub_uref->ubuf != NULL)
+        uref_sub_attach_ubuf(uref, uref_detach_ubuf(sub_uref));
     uref_free(sub_uref);
     if (index_p != NULL)
         *index_p = index;

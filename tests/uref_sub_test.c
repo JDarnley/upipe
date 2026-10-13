@@ -7,7 +7,8 @@
  */
 
 /** @file
- * @short unit tests for urefs carrying multiple ubufs
+ * @short unit tests for urefs carrying multiple ubufs, and for flow
+ * definitions carrying entries
  */
 
 #undef NDEBUG
@@ -22,6 +23,9 @@
 #include "upipe/uref.h"
 #include "upipe/uref_std.h"
 #include "upipe/uref_flow.h"
+#include "upipe/uref_block.h"
+#include "upipe/uref_clock.h"
+#include "upipe/uref_attr.h"
 #include "upipe/uref_sub.h"
 
 #include <stdio.h>
@@ -99,10 +103,10 @@ int main(int argc, char **argv)
     ubase_assert(uref_sub_set_def(uref, "sound.s32.", 1));
 
     uint8_t index = 0xff;
-    struct ubuf *found = uref_sub_find_flow_id(uref, 0x101, &index);
+    ubase_assert(uref_sub_find_flow_id(uref, 0x101, &index));
     assert(index == 1);
-    check_block(found, 'A', 32);
-    assert(uref_sub_find_flow_id(uref, 0xdead, NULL) == NULL);
+    check_block(uref_sub_get(uref, index), 'A', 32);
+    ubase_nassert(uref_sub_find_flow_id(uref, 0xdead, NULL));
 
     /* uref_dup duplicates the whole chain and its attributes */
     struct uref *dup = uref_dup(uref);
@@ -125,7 +129,8 @@ int main(int argc, char **argv)
     assert(fork != NULL);
     assert(uref_sub_count(fork) == 3);
     check_block(uref_sub_get(fork, 0), 'W', 8);
-    check_block(uref_sub_find_flow_id(fork, 0x101, NULL), 'A', 32);
+    ubase_assert(uref_sub_find_flow_id(fork, 0x101, &index));
+    check_block(uref_sub_get(fork, index), 'A', 32);
     uref_free(fork);
 
     /* replace an entry in place */
@@ -137,7 +142,8 @@ int main(int argc, char **argv)
                                         42));
 
     /* extract an entry as a standalone uref: per-entry attributes become
-     * plain attributes again, visible to shorthand accessors */
+     * plain attributes again, visible to shorthand accessors, and as it was
+     * attached without kept fields it gets the dates of the carrier */
     uref->date_prog = 42;
     struct uref *extracted = uref_sub_extract(uref, 1);
     assert(extracted != NULL);
@@ -150,7 +156,8 @@ int main(int argc, char **argv)
     assert(!strcmp(def, "sound.s32."));
     uref_free(extracted);
 
-    /* extract entry 0: its own namespace, without other entries' */
+    /* extract entry 0: the plain attributes of the carrier and its own
+     * namespace, without other entries' */
     extracted = uref_sub_extract(uref, 0);
     assert(extracted != NULL);
     check_block(extracted->ubuf, 'V', 64);
@@ -164,7 +171,8 @@ int main(int argc, char **argv)
     /* merge a standalone uref as a new entry */
     struct uref *sound = uref_alloc(mgr);
     assert(sound != NULL);
-    ubase_nassert(uref_sub_merge(uref, sound, NULL)); /* no ubuf */
+    /* no ubuf, while the carrier has ubufs */
+    ubase_nassert(uref_sub_merge(uref, sound, NULL));
     uref_attach_ubuf(sound, build_block(ubuf_mgr, 'M', 24));
     ubase_assert(uref_flow_set_id(sound, 0x200));
     ubase_assert(uref_flow_set_def(sound, "sound.s16."));
@@ -172,8 +180,9 @@ int main(int argc, char **argv)
     ubase_assert(uref_sub_merge(uref, sound, &merge_index));
     assert(merge_index == 3);
     assert(uref_sub_count(uref) == 4);
-    check_block(uref_sub_find_flow_id(uref, 0x200, &merge_index), 'M', 24);
+    ubase_assert(uref_sub_find_flow_id(uref, 0x200, &merge_index));
     assert(merge_index == 3);
+    check_block(uref_sub_get(uref, merge_index), 'M', 24);
     ubase_assert(uref_sub_get_def(uref, &def, 3));
     assert(!strcmp(def, "sound.s16."));
 
@@ -192,8 +201,9 @@ int main(int argc, char **argv)
     ubase_assert(uref_sub_get_def(uref, &def, 2));
     assert(!strcmp(def, "sound.s16."));
     ubase_nassert(uref_sub_get_flow_id(uref, &v, 3));
-    assert(uref_sub_find_flow_id(uref, 0x101, NULL) == NULL);
-    check_block(uref_sub_find_flow_id(uref, 0x200, NULL), 'M', 24);
+    ubase_nassert(uref_sub_find_flow_id(uref, 0x101, NULL));
+    ubase_assert(uref_sub_find_flow_id(uref, 0x200, &index));
+    check_block(uref_sub_get(uref, index), 'M', 24);
     assert(uref_sub_detach_ubuf(uref, 3) == NULL);
 
     /* legacy detach only touches the primary ubuf */
@@ -205,6 +215,175 @@ int main(int argc, char **argv)
 
     /* uref_free releases the remaining chain (checked by refcounts on
      * manager release below) */
+    uref_free(uref);
+
+    /* a uref without ubufs (here a flow definition) carries entries made
+     * only of attributes, with the same functions */
+    struct uref *flow_def = uref_alloc_control(mgr);
+    assert(flow_def != NULL);
+    ubase_assert(uref_flow_set_def(flow_def, "block.mpegts."));
+    assert(uref_sub_count(flow_def) == 0);
+    ubase_assert(uref_sub_set_flow_id(flow_def, 0x100, 0));
+    assert(uref_sub_count(flow_def) == 1);
+
+    struct uref *entry = uref_alloc_control(mgr);
+    assert(entry != NULL);
+    ubase_assert(uref_flow_set_def(entry, "sound.s32."));
+    ubase_assert(uref_flow_set_id(entry, 0x101));
+    ubase_assert(uref_flow_set_name(entry, "audio"));
+    ubase_assert(uref_flow_set_language(entry, "eng", 0));
+    ubase_assert(uref_sub_merge(flow_def, entry, &merge_index));
+    assert(merge_index == 1);
+
+    entry = uref_alloc_control(mgr);
+    assert(entry != NULL);
+    ubase_assert(uref_flow_set_def(entry, "pic.sub."));
+    ubase_assert(uref_flow_set_id(entry, 0x102));
+    ubase_assert(uref_sub_merge(flow_def, entry, &merge_index));
+    assert(merge_index == 2);
+    assert(uref_sub_count(flow_def) == 3);
+    assert(uref_sub_get(flow_def, 1) == NULL);
+    ubase_assert(uref_sub_get_def(flow_def, &def, 1));
+    assert(!strcmp(def, "sound.s32."));
+    ubase_assert(uref_sub_find_flow_id(flow_def, 0x102, &index));
+    assert(index == 2);
+    ubase_assert(uref_sub_find_flow_id(flow_def, 0x100, &index));
+    assert(index == 0);
+    ubase_nassert(uref_sub_find_flow_id(flow_def, 0xdead, NULL));
+
+    /* an entry with a ubuf can't follow entries without ubufs */
+    entry = uref_alloc(mgr);
+    assert(entry != NULL);
+    uref_attach_ubuf(entry, build_block(ubuf_mgr, 'X', 8));
+    ubase_nassert(uref_sub_merge(flow_def, entry, NULL));
+    uref_free(entry);
+    /* an entry without ubuf must have attributes */
+    entry = uref_alloc_control(mgr);
+    assert(entry != NULL);
+    ubase_nassert(uref_sub_merge(flow_def, entry, NULL));
+    uref_free(entry);
+    assert(uref_sub_count(flow_def) == 3);
+
+    /* extracting an entry restores its plain attributes and shorthands */
+    extracted = uref_sub_extract(flow_def, 1);
+    assert(extracted != NULL);
+    assert(extracted->ubuf == NULL);
+    assert(uref_sub_count(extracted) == 0);
+    ubase_assert(uref_flow_get_def(extracted, &def));
+    assert(!strcmp(def, "sound.s32."));
+    ubase_assert(uref_flow_get_id(extracted, &v));
+    assert(v == 0x101);
+    ubase_assert(uref_flow_get_name(extracted, &def));
+    assert(!strcmp(def, "audio"));
+    ubase_assert(uref_flow_get_language(extracted, &def, 0));
+    assert(!strcmp(def, "eng"));
+    uref_free(extracted);
+
+    extracted = uref_sub_extract(flow_def, 0);
+    assert(extracted != NULL);
+    ubase_assert(uref_flow_get_def(extracted, &def));
+    assert(!strcmp(def, "block.mpegts."));
+    ubase_assert(uref_flow_get_id(extracted, &v));
+    assert(v == 0x100);
+    ubase_nassert(uref_sub_get_def(extracted, &def, 1));
+    uref_free(extracted);
+
+    assert(uref_sub_extract(flow_def, 3) == NULL);
+    uref_free(flow_def);
+
+    /* each entry keeps its own flags, dates and delays, which are fields of
+     * the uref rather than attributes */
+    uref = uref_alloc(mgr);
+    assert(uref != NULL);
+    uref_attach_ubuf(uref, build_block(ubuf_mgr, 'P', 16));
+    uref_clock_set_pts_prog(uref, 1000);
+    uref_clock_set_dts_pts_delay(uref, 10);
+    uref_flow_set_random(uref);
+    struct uref *carrier_fields = uref_dup(uref);
+    assert(carrier_fields != NULL);
+
+    struct uref *own = uref_alloc(mgr);
+    assert(own != NULL);
+    uref_attach_ubuf(own, build_block(ubuf_mgr, 'Q', 8));
+    uref_clock_set_cr_sys(own, 2001);
+    uref_clock_set_pts_prog(own, 2002);
+    uref_clock_set_dts_orig(own, 2003);
+    uref_clock_set_dts_pts_delay(own, 2004);
+    uref_clock_set_cr_dts_delay(own, 2005);
+    uref_clock_set_rap_cr_delay(own, 2006);
+    uref_flow_set_discontinuity(own);
+    uref_block_set_start(own);
+    struct uref *own_fields = uref_dup(own);
+    assert(own_fields != NULL);
+    ubase_assert(uref_sub_merge(uref, own, &merge_index));
+    assert(merge_index == 1);
+
+    /* the carrier's own fields are unchanged */
+    assert(uref->flags == carrier_fields->flags);
+    assert(uref->date_sys == carrier_fields->date_sys);
+    assert(uref->date_prog == carrier_fields->date_prog);
+    assert(uref->dts_pts_delay == carrier_fields->dts_pts_delay);
+
+    extracted = uref_sub_extract(uref, 1);
+    assert(extracted != NULL);
+    check_block(extracted->ubuf, 'Q', 8);
+    assert(extracted->flags == own_fields->flags);
+    assert(extracted->date_sys == own_fields->date_sys);
+    assert(extracted->date_prog == own_fields->date_prog);
+    assert(extracted->date_orig == own_fields->date_orig);
+    assert(extracted->dts_pts_delay == own_fields->dts_pts_delay);
+    assert(extracted->cr_dts_delay == own_fields->cr_dts_delay);
+    assert(extracted->rap_cr_delay == own_fields->rap_cr_delay);
+    /* they don't show up as attributes */
+    ubase_nassert(uref_attr_get_unsigned(extracted, &v, UDICT_TYPE_UNSIGNED,
+                                         "uref.flags"));
+    uref_free(extracted);
+
+    /* an entry attached without them gets those of the carrier */
+    assert(uref_sub_attach_ubuf(uref, build_block(ubuf_mgr, 'R', 4)) == 2);
+    extracted = uref_sub_extract(uref, 2);
+    assert(extracted != NULL);
+    assert(extracted->flags == uref->flags);
+    assert(extracted->date_prog == uref->date_prog);
+    assert(extracted->dts_pts_delay == uref->dts_pts_delay);
+    uref_free(extracted);
+
+    /* entry 0 has the carrier's */
+    extracted = uref_sub_extract(uref, 0);
+    assert(extracted != NULL);
+    assert(extracted->flags == uref->flags);
+    assert(extracted->date_prog == uref->date_prog);
+    uref_free(extracted);
+
+    /* detaching an entry deletes its kept fields along with its other
+     * attributes; the entry renumbered in its place had none */
+    ubuf_free(uref_sub_detach_ubuf(uref, 1));
+    ubase_nassert(uref_attr_get_unsigned(uref, &v, UDICT_TYPE_UNSIGNED,
+                                         "sub[1].uref.flags"));
+    ubase_nassert(uref_attr_get_unsigned(uref, &v, UDICT_TYPE_UNSIGNED,
+                                         "sub[2].uref.flags"));
+    uref_free(uref);
+    uref_free(own_fields);
+    uref_free(carrier_fields);
+
+    /* a uref holds at most UREF_SUB_MAX_ENTRIES entries, including entry 0 */
+    uref = uref_alloc(mgr);
+    assert(uref != NULL);
+    uref_attach_ubuf(uref, build_block(ubuf_mgr, 'L', 4));
+    for (unsigned i = 1; i < UREF_SUB_MAX_ENTRIES; i++) {
+        entry = uref_alloc(mgr);
+        assert(entry != NULL);
+        uref_attach_ubuf(entry, build_block(ubuf_mgr, 'l', 4));
+        ubase_assert(uref_sub_merge(uref, entry, &merge_index));
+        assert(merge_index == i);
+    }
+    assert(uref_sub_count(uref) == UREF_SUB_MAX_ENTRIES);
+    entry = uref_alloc(mgr);
+    assert(entry != NULL);
+    uref_attach_ubuf(entry, build_block(ubuf_mgr, 'x', 4));
+    ubase_nassert(uref_sub_merge(uref, entry, NULL));
+    uref_free(entry);
+    assert(uref_sub_count(uref) == UREF_SUB_MAX_ENTRIES);
     uref_free(uref);
 
     ubuf_mgr_release(ubuf_mgr);
