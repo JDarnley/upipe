@@ -72,6 +72,7 @@ libupipe_modules-includes = \
     upipe_transfer.h \
     upipe_trickplay.h \
     upipe_udp_source.h \
+    upipe_uref_demux.h \
     upipe_uref_mux.h \
     upipe_video_blank.h \
     upipe_videocont.h \
@@ -158,6 +159,7 @@ libupipe_modules-src = \
     upipe_transfer.c \
     upipe_trickplay.c \
     upipe_udp_source.c \
+    upipe_uref_demux.c \
     upipe_uref_mux.c \
     upipe_video_blank.c \
     upipe_videocont.c \
