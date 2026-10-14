@@ -517,6 +517,10 @@ tests += upipe_uref_demux_test
 upipe_uref_demux_test-src = upipe_uref_demux_test.c
 upipe_uref_demux_test-libs = libupipe libupipe_modules
 
+tests += upipe_uref_mux_demux_test
+upipe_uref_mux_demux_test-src = upipe_uref_mux_demux_test.c
+upipe_uref_mux_demux_test-libs = libupipe libupipe_modules
+
 tests += upipe_uref_mux_test
 upipe_uref_mux_test-src = upipe_uref_mux_test.c
 upipe_uref_mux_test-libs = libupipe libupipe_modules
