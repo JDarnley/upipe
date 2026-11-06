@@ -312,6 +312,8 @@ static struct uref *input_uref(char c, int size, uint64_t base,
     uref_clock_set_cr_dts_delay(uref, base + 5);
     uref_clock_set_rap_cr_delay(uref, base + 6);
     ubase_assert(uref_clock_set_duration(uref, base + 7));
+    ubase_assert(uref_clock_set_rate(uref,
+            (struct urational){ .num = (int64_t)base + 8, .den = 1001 }));
     ubase_assert(uref_attr_set_unsigned(uref, base, UDICT_TYPE_UNSIGNED,
                                         "x.base"));
     ubase_assert(uref_attr_set_string(uref, "input", UDICT_TYPE_STRING,
@@ -392,6 +394,17 @@ static void check_uref(struct uref *uref, struct uref *expected, char c,
     assert(uref->cr_dts_delay == expected->cr_dts_delay);
     assert(uref->rap_cr_delay == expected->rap_cr_delay);
     assert(!udict_cmp(uref->udict, expected->udict));
+
+    /* duration and rate are attributes, which the udict comparison covers,
+     * but they are checked by name too */
+    uint64_t duration, expected_duration;
+    ubase_assert(uref_clock_get_duration(expected, &expected_duration));
+    ubase_assert(uref_clock_get_duration(uref, &duration));
+    assert(duration == expected_duration);
+    struct urational rate, expected_rate;
+    ubase_assert(uref_clock_get_rate(expected, &expected_rate));
+    ubase_assert(uref_clock_get_rate(uref, &rate));
+    assert(rate.num == expected_rate.num && rate.den == expected_rate.den);
 }
 
 /** checks the last uref received for a flow ID and the flow def of its
