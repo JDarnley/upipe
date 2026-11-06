@@ -299,6 +299,9 @@ int main(int argc, char **argv)
     uref_clock_set_pts_prog(uref, 1000);
     uref_clock_set_dts_pts_delay(uref, 10);
     uref_flow_set_random(uref);
+    ubase_assert(uref_clock_set_duration(uref, 40));
+    ubase_assert(uref_clock_set_rate(uref,
+            (struct urational){ .num = 1, .den = 1 }));
     struct uref *carrier_fields = uref_dup(uref);
     assert(carrier_fields != NULL);
 
@@ -313,6 +316,9 @@ int main(int argc, char **argv)
     uref_clock_set_rap_cr_delay(own, 2006);
     uref_flow_set_discontinuity(own);
     uref_block_set_start(own);
+    ubase_assert(uref_clock_set_duration(own, 3003));
+    ubase_assert(uref_clock_set_rate(own,
+            (struct urational){ .num = 30000, .den = 1001 }));
     struct uref *own_fields = uref_dup(own);
     assert(own_fields != NULL);
     ubase_assert(uref_sub_merge(uref, own, &merge_index));
@@ -337,6 +343,13 @@ int main(int argc, char **argv)
     /* they don't show up as attributes */
     ubase_nassert(uref_attr_get_unsigned(extracted, &v, UDICT_TYPE_UNSIGNED,
                                          "uref.flags"));
+    /* duration and rate are attributes, so the entry keeps its own like any
+     * other attribute */
+    struct urational rate;
+    ubase_assert(uref_clock_get_duration(extracted, &v));
+    assert(v == 3003);
+    ubase_assert(uref_clock_get_rate(extracted, &rate));
+    assert(rate.num == 30000 && rate.den == 1001);
     uref_free(extracted);
 
     /* an entry attached without them gets those of the carrier */
@@ -346,13 +359,20 @@ int main(int argc, char **argv)
     assert(extracted->flags == uref->flags);
     assert(extracted->date_prog == uref->date_prog);
     assert(extracted->dts_pts_delay == uref->dts_pts_delay);
+    /* but not its attributes, duration and rate included */
+    ubase_nassert(uref_clock_get_duration(extracted, &v));
+    ubase_nassert(uref_clock_get_rate(extracted, &rate));
     uref_free(extracted);
 
-    /* entry 0 has the carrier's */
+    /* entry 0 has the carrier's, duration and rate included */
     extracted = uref_sub_extract(uref, 0);
     assert(extracted != NULL);
     assert(extracted->flags == uref->flags);
     assert(extracted->date_prog == uref->date_prog);
+    ubase_assert(uref_clock_get_duration(extracted, &v));
+    assert(v == 40);
+    ubase_assert(uref_clock_get_rate(extracted, &rate));
+    assert(rate.num == 1 && rate.den == 1);
     uref_free(extracted);
 
     /* detaching an entry deletes its kept fields along with its other
